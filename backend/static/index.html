@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Medical Concierge - Ingestion MVP</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  .row { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; flex: 1; min-width: 280px; }
+  label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.25rem; }
+  select, input[type=file] { width: 100%; margin-bottom: 0.75rem; }
+  button { padding: 0.5rem 1rem; border-radius: 6px; border: none; background: #2b6cb0; color: white; cursor: pointer; }
+  button:disabled { background: #aaa; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.85rem; }
+  th, td { border-bottom: 1px solid #eee; padding: 0.4rem; text-align: left; vertical-align: top; }
+  .conf-high { color: #1a7f37; font-weight: 600; }
+  .conf-med { color: #9a6700; font-weight: 600; }
+  .conf-low { color: #cf222e; font-weight: 600; }
+  .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #fbe6e6; color: #cf222e; }
+  #status { font-size: 0.85rem; color: #555; }
+</style>
+</head>
+<body>
+  <h1>Medical Concierge - Ingestion MVP</h1>
+  <p>Upload a PDF or photo (visit note, prescription, pill/supplement bottle, handwritten note).
+     Extraction is multimodal (reads the image directly); every item is normalized against RxNorm.</p>
+
+  <div class="row">
+    <div class="card">
+      <label for="kind">Record type</label>
+      <select id="kind">
+        <option value="medicine">Medicine</option>
+        <option value="supplement">Supplement</option>
+      </select>
+
+      <label for="sourceType">Source type</label>
+      <select id="sourceType">
+        <option value="other">Other / not sure</option>
+        <option value="bottle_label">Bottle label</option>
+        <option value="handwritten_note">Handwritten note</option>
+        <option value="printed_document">Printed document</option>
+        <option value="pdf_page">PDF</option>
+      </select>
+
+      <label for="file">File (pdf, jpg, png, webp)</label>
+      <input type="file" id="file" accept=".pdf,.jpg,.jpeg,.png,.webp" />
+
+      <button id="uploadBtn">Ingest document</button>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <h2>Extracted &amp; normalized records</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name (as written)</th>
+        <th>Normalized</th>
+        <th>Dose / Freq</th>
+        <th>Confidence</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody id="resultsBody"></tbody>
+  </table>
+
+  <p><a href="/api/export?format=csv">Export all records (CSV)</a> ·
+     <a href="/api/export?format=json">Export all records (JSON)</a></p>
+
+<script>
+const uploadBtn = document.getElementById('uploadBtn');
+const statusEl = document.getElementById('status');
+const resultsBody = document.getElementById('resultsBody');
+
+function confClass(v) {
+  if (v >= 0.8) return 'conf-high';
+  if (v >= 0.6) return 'conf-med';
+  return 'conf-low';
+}
+
+function renderRecords(records) {
+  for (const r of records) {
+    const tr = document.createElement('tr');
+    const notes = (r.extracted.ambiguities || []).join('; ');
+    tr.innerHTML = `
+      <td>${r.extracted.name_as_written}</td>
+      <td>${r.normalization.canonical_name || '<em>unnormalized</em>'} ${r.normalization.rxcui ? '(RxCUI ' + r.normalization.rxcui + ')' : ''}</td>
+      <td>${r.extracted.dosage || ''} ${r.extracted.frequency || ''}</td>
+      <td class="${confClass(r.overall_confidence)}">${(r.overall_confidence * 100).toFixed(0)}%
+        ${r.needs_review ? '<span class="badge">needs review</span>' : ''}</td>
+      <td>${notes}</td>
+    `;
+    resultsBody.prepend(tr);
+  }
+}
+
+async function loadExisting() {
+  const res = await fetch('/api/records');
+  const data = await res.json();
+  renderRecords(data.records.reverse());
+}
+
+uploadBtn.addEventListener('click', async () => {
+  const fileInput = document.getElementById('file');
+  const kind = document.getElementById('kind').value;
+  const sourceType = document.getElementById('sourceType').value;
+  if (!fileInput.files.length) {
+    statusEl.textContent = 'Choose a file first.';
+    return;
+  }
+  uploadBtn.disabled = true;
+  statusEl.textContent = 'Uploading and extracting... this can take a few seconds.';
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  try {
+    const res = await fetch(`/api/ingest/${kind}?source_type=${sourceType}`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    renderRecords(data.records);
+    statusEl.textContent = `Done — extracted ${data.records.length} record(s).`;
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  } finally {
+    uploadBtn.disabled = false;
+  }
+});
+
+loadExisting();
+</script>
+</body>
+</html>

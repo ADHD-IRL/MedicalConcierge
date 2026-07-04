@@ -42,6 +42,13 @@ Tests mock the Anthropic vision call and the RxNorm HTTP client, so they run
 without network access or an API key. Running the app itself requires a real
 `ANTHROPIC_API_KEY` and outbound HTTPS access to `rxnav.nlm.nih.gov`.
 
+## Docker / self-hosted deployment
+
+For a real (non-dev) deployment behind a reverse proxy, see
+[`../deploy/README.md`](../deploy/README.md) — `docker compose up` runs this
+app plus a Caddy TLS-terminating proxy, matching the hosting recommendation
+in `docs/ARCHITECTURE.md` section 7 (self-hosted, LAN/VPN-only).
+
 ## Notes
 
 - This is an MVP for the ingestion agents specifically — no interaction

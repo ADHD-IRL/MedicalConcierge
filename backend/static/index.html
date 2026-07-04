@@ -194,6 +194,33 @@
   }
   .empty .big { font-size: 2rem; display: block; margin-bottom: .5rem; }
 
+  .col { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+
+  .warn-item {
+    border: 1px solid var(--border); border-left: 4px solid var(--text-dim);
+    border-radius: 10px; padding: .8rem .95rem; margin-bottom: .7rem;
+    background: var(--surface);
+  }
+  .warn-item.sev-major { border-left-color: #dc2626; }
+  .warn-item.sev-moderate { border-left-color: #d97706; }
+  .warn-item.sev-info { border-left-color: var(--accent); }
+  .warn-head { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+  .warn-title { font-weight: 650; font-size: .92rem; }
+  .warn-involves { font-size: .8rem; color: var(--text-dim); margin-top: .15rem; }
+  .warn-body { font-size: .84rem; color: var(--text-dim); margin-top: .35rem; }
+  .warn-rec {
+    margin-top: .5rem; font-size: .84rem;
+    background: var(--accent-soft); color: var(--text);
+    border-radius: 7px; padding: .45rem .65rem;
+  }
+  .warn-caveat { font-size: .72rem; color: var(--text-dim); margin-top: .45rem; }
+  .warn-ok {
+    display: flex; gap: .6rem; align-items: center;
+    color: var(--good); font-size: .88rem; padding: .4rem 0;
+  }
+  .warn-ok[hidden] { display: none; }
+  .warn-note { font-size: .74rem; color: var(--text-dim); margin-top: .6rem; }
+
   footer {
     max-width: 1100px; margin: 0 auto 2rem; padding: 0 1.25rem;
     font-size: .75rem; color: var(--text-dim); text-align: center;
@@ -245,6 +272,25 @@
     <div class="status" id="status"></div>
   </section>
 
+  <div class="col">
+
+  <section class="card">
+    <h2>Warnings &amp; recommendations <span id="warnCount" class="badge b-bad" hidden></span></h2>
+    <div id="warnList"></div>
+    <div class="warn-ok" id="warnOk" hidden>
+      <span>&#9989;</span>
+      <span>No interactions found between your current records.</span>
+    </div>
+    <div class="empty" id="warnEmpty">
+      <span class="big">&#128737;&#65039;</span>
+      Add your medicines and supplements and they'll be checked against each other automatically.
+    </div>
+    <div class="warn-note">Screened against a built-in list of well-documented drug&ndash;drug,
+      drug&ndash;supplement, and vitamin/mineral interactions, duplicate therapies, and nutrient
+      depletions. This is a starter screen, not a complete check &mdash; your pharmacist can run a
+      full one. Never stop a medicine without talking to your doctor.</div>
+  </section>
+
   <section class="card">
     <h2>Your records</h2>
 
@@ -265,6 +311,8 @@
       Nothing here yet.<br />Add your first document on the left — a photo of a pill bottle works great.
     </div>
   </section>
+
+  </div>
 </main>
 
 <footer>
@@ -334,6 +382,7 @@ $('uploadBtn').addEventListener('click', async () => {
     const data = await res.json();
     records = data.records.concat(records);
     render();
+    loadFindings();
     const n = data.records.length;
     status.textContent = n === 0
       ? 'Done — no ' + kind + 's found in that document.'
@@ -403,7 +452,50 @@ function render() {
   }).join('');
 }
 
-fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); });
+// --- warnings & recommendations ---
+const SEV_LABEL = {
+  major: '<span class="badge b-bad">MAJOR</span>',
+  moderate: '<span class="badge b-warn">MODERATE</span>',
+  info: '<span class="badge b-kind">FYI</span>',
+};
+
+async function loadFindings() {
+  try {
+    const res = await fetch('/api/findings');
+    const data = await res.json();
+    renderFindings(data.findings || []);
+  } catch {}
+}
+
+function renderFindings(findings) {
+  const list = $('warnList');
+  const majors = findings.filter(f => f.severity === 'major').length;
+
+  $('warnEmpty').hidden = records.length > 0 || findings.length > 0;
+  $('warnOk').hidden = !(records.length > 0 && findings.length === 0);
+  $('warnCount').hidden = findings.length === 0;
+  $('warnCount').textContent = majors > 0
+    ? findings.length + ' found · ' + majors + ' major'
+    : findings.length + ' found';
+
+  list.innerHTML = findings.map(f => {
+    let caveat = f.evidence_note + ' Based on entries read with ≥' +
+      Math.round(f.reading_confidence * 100) + '% confidence.';
+    if (f.needs_record_review) {
+      caveat += ' ⚠️ One of these entries is itself marked "check this" — verify it first.';
+    }
+    return '<div class="warn-item sev-' + esc(f.severity) + '">' +
+      '<div class="warn-head">' + SEV_LABEL[f.severity] +
+        '<span class="warn-title">' + esc(f.title) + '</span></div>' +
+      '<div class="warn-involves">Involves: <strong>' + f.involved.map(esc).join('</strong> + <strong>') + '</strong></div>' +
+      '<div class="warn-body">' + esc(f.explanation) + '</div>' +
+      '<div class="warn-rec">&#128161; ' + esc(f.recommendation) + '</div>' +
+      '<div class="warn-caveat">' + esc(caveat) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); });
 </script>
 </body>
 </html>

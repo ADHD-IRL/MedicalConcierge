@@ -73,6 +73,14 @@ shortcut)**. Now it launches from your desktop like any other program.
   is (bottle photo, handwritten note, …), drag the file in, click
   **Read this document**. Photos from your phone work — email them to
   yourself or use any transfer method, then drop them in.
+- **Warnings & recommendations:** every time you add a document, all your
+  records are automatically checked against each other — drug-drug
+  interactions, supplement and vitamin/mineral interactions, duplicate
+  medicines from different doctors, and nutrients your medicines may
+  deplete. Warnings appear at the top, color-coded (red = major), each with
+  a plain-language explanation and a suggested next step. They also appear
+  on the doctor PDF. This is a built-in starter screen, not a complete
+  interaction check — your pharmacist can run a full one.
 - **Confidence badges:** every record shows how confident the app is that it
   read the document correctly. Anything marked **"check this"** deserves a
   quick look — the app read something it wasn't sure about (usually messy

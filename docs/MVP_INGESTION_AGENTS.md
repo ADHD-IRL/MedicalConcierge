@@ -102,7 +102,7 @@ that:
 | PDF handling | Real (PyMuPDF rasterization) | Same; could add native PDF text-layer extraction as a fast-path when present |
 | RxNorm normalization | Real API client (approximateTerm + property lookup) | Same; add UMLS auth for restricted endpoints if needed |
 | Supplement normalization | RxNorm first, then a small curated local synonym table (~40 common supplements) | Replace/augment local table with TRC NatMed Pro API once licensed |
-| Interaction checking | Not in scope for this MVP | Separate Interaction Agent (see ARCHITECTURE.md §2.3) |
+| Interaction checking | Curated local rules engine (`app/interactions/`): well-documented drug-drug, drug-supplement, vitamin/mineral, duplicate-therapy, and nutrient-depletion rules, screened deterministically after every ingest | Swap/augment the rule source with openFDA labels + TRC NatMed Pro behind the same rule interface (see ARCHITECTURE.md §2.3) |
 | Storage | Local SQLite, unencrypted (dev-grade) | Encrypt at rest (SQLCipher or filesystem-level) before real PHI goes in |
 | UI | Single static HTML page, upload + JSON table | Full SPA/timeline per ARCHITECTURE.md §4 |
 | Auth | None (localhost dev) | Passkey/WebAuthn single-user auth before any network exposure |

@@ -11,6 +11,7 @@ from app.agents.medicine_agent import process_medicine_document
 from app.agents.supplement_agent import process_supplement_document
 from app.config import get_settings
 from app.export.pdf_report import build_pdf
+from app.interactions.engine import evaluate
 from app.ingestion.file_loader import UnsupportedFileType
 from app.schemas import IngestResponse, RecordKind, SourceType
 from app.storage.store import RecordStore
@@ -62,6 +63,13 @@ def list_records(kind: RecordKind | None = None):
     return {"records": [r.model_dump(mode="json") for r in records]}
 
 
+@router.get("/findings")
+def list_findings():
+    records = get_store().list_all()
+    findings = evaluate(records)
+    return {"findings": [f.model_dump(mode="json") for f in findings]}
+
+
 @router.get("/export")
 def export_records(format: str = "json"):
     store = get_store()
@@ -71,7 +79,7 @@ def export_records(format: str = "json"):
         return {"records": [r.model_dump(mode="json") for r in records]}
 
     if format == "pdf":
-        pdf_bytes = build_pdf(records)
+        pdf_bytes = build_pdf(records, findings=evaluate(records))
         filename = f"medication_summary_{date.today().isoformat()}.pdf"
         return Response(
             content=pdf_bytes,

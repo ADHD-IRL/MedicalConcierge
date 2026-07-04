@@ -12,7 +12,7 @@ from datetime import date
 
 import fitz
 
-from app.schemas import NormalizedRecord, RecordKind
+from app.schemas import Finding, FindingSeverity, NormalizedRecord, RecordKind
 
 _PAGE_W, _PAGE_H = fitz.paper_size("letter")
 _MARGIN = 54.0
@@ -22,7 +22,14 @@ _TEXT_W = _PAGE_W - 2 * _MARGIN
 _BLACK = (0.0, 0.0, 0.0)
 _GRAY = (0.38, 0.38, 0.38)
 _RED = (0.72, 0.11, 0.11)
+_AMBER = (0.62, 0.42, 0.03)
 _RULE = (0.80, 0.82, 0.85)
+
+_SEVERITY_LABEL = {
+    FindingSeverity.major: ("MAJOR", _RED),
+    FindingSeverity.moderate: ("MODERATE", _AMBER),
+    FindingSeverity.info: ("FYI", _GRAY),
+}
 
 
 def _wrap(text: str, fontname: str, size: float, max_width: float) -> list[str]:
@@ -155,7 +162,20 @@ def _record_block(w: _Writer, record: NormalizedRecord) -> None:
     w.space(7)
 
 
-def build_pdf(records: list[NormalizedRecord]) -> bytes:
+def _finding_block(w: _Writer, finding: Finding) -> None:
+    label, color = _SEVERITY_LABEL[finding.severity]
+    w.text(f"[{label}]  {finding.title}", size=10.0, bold=True, color=color, gap=1)
+    w.text("Involves: " + ", ".join(finding.involved), size=9.0, indent=2, gap=1)
+    w.text(finding.explanation, size=9.0, color=_GRAY, indent=2, gap=1)
+    w.text(f"Suggested next step: {finding.recommendation}", size=9.0, indent=2, gap=1)
+    caveat = f"{finding.evidence_note} Based on entries read with >= {round(finding.reading_confidence * 100)}% confidence."
+    if finding.needs_record_review:
+        caveat += " One or more underlying entries is itself marked PLEASE CONFIRM - verify those first."
+    w.text(caveat, size=7.5, color=_GRAY, indent=2, gap=1)
+    w.space(7)
+
+
+def build_pdf(records: list[NormalizedRecord], findings: list[Finding] | None = None) -> bytes:
     medicines = sorted(
         (r for r in records if r.kind == RecordKind.medicine),
         key=lambda r: (r.normalization.canonical_name or r.extracted.name_as_written).lower(),
@@ -165,6 +185,8 @@ def build_pdf(records: list[NormalizedRecord]) -> bytes:
         key=lambda r: (r.normalization.canonical_name or r.extracted.name_as_written).lower(),
     )
     flagged = sum(1 for r in records if r.needs_review)
+    findings = findings or []
+    major_count = sum(1 for f in findings if f.severity == FindingSeverity.major)
 
     w = _Writer()
 
@@ -175,6 +197,10 @@ def build_pdf(records: list[NormalizedRecord]) -> bytes:
     )
     if flagged:
         summary += f"  -  {flagged} item(s) marked PLEASE CONFIRM"
+    if findings:
+        summary += f"  -  {len(findings)} screening finding(s)"
+        if major_count:
+            summary += f" ({major_count} major)"
     w.text(summary, size=9.5, color=_GRAY, gap=2)
     w.text(
         "Entries were read from the patient's documents and photos by software and "
@@ -187,6 +213,26 @@ def build_pdf(records: list[NormalizedRecord]) -> bytes:
     )
     w.rule()
 
+    w.text("POTENTIAL INTERACTIONS & RECOMMENDATIONS", size=11.5, bold=True, gap=2)
+    w.text(
+        "Screened against a built-in list of well-documented interactions "
+        "(drug-drug, drug-supplement, vitamin/mineral, duplicate therapy, nutrient "
+        "depletion). This is a starter screen, not a complete interaction check - "
+        "a pharmacist can run a full one.",
+        size=8.0,
+        color=_GRAY,
+        gap=5,
+    )
+    if findings:
+        for finding in findings:
+            _finding_block(w, finding)
+    else:
+        w.text(
+            "No potential interactions found in the built-in screening list.",
+            size=9.5, color=_GRAY, gap=6,
+        )
+
+    w.rule()
     w.text("MEDICATIONS", size=11.5, bold=True, gap=6)
     if medicines:
         for record in medicines:

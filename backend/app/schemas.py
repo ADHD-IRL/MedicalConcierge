@@ -93,3 +93,46 @@ class IngestResponse(BaseModel):
     filename: str
     kind: RecordKind
     records: list[NormalizedRecord]
+
+
+class FindingSeverity(str, Enum):
+    major = "major"
+    moderate = "moderate"
+    info = "info"
+
+
+class FindingCategory(str, Enum):
+    drug_drug = "drug_drug"
+    drug_supplement = "drug_supplement"
+    supplement_supplement = "supplement_supplement"
+    duplicate = "duplicate"
+    depletion = "depletion"
+
+
+class Finding(BaseModel):
+    """One screening result: a potential interaction, duplication, or
+    nutrient-depletion recommendation derived from the current record set.
+
+    Findings are always framed as discussion points for the user's doctor or
+    pharmacist, never as instructions to change medication."""
+
+    rule_id: str
+    severity: FindingSeverity
+    category: FindingCategory
+    title: str
+    involved: list[str] = Field(..., description="Display names of the records involved.")
+    involved_record_ids: list[str]
+    explanation: str = Field(..., description="Plain-language why/mechanism.")
+    recommendation: str = Field(..., description="Suggested next step, discussion-framed.")
+    evidence_note: str = Field(
+        "Well-documented interaction (built-in reference list).",
+        description="Where this rule comes from.",
+    )
+    reading_confidence: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="Lowest overall_confidence among involved records - if the "
+        "underlying reading is shaky, so is the finding.",
+    )
+    needs_record_review: bool = Field(
+        False, description="True if any involved record is itself flagged needs_review."
+    )

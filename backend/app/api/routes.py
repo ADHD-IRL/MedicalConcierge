@@ -20,6 +20,15 @@ def get_store() -> RecordStore:
     return RecordStore(get_settings().db_path)
 
 
+@router.get("/health")
+def health():
+    settings = get_settings()
+    return {
+        "ok": True,
+        "anthropic_key_configured": bool(settings.anthropic_api_key.strip()),
+    }
+
+
 @router.post("/ingest/medicine", response_model=IngestResponse)
 async def ingest_medicine(file: UploadFile, source_type: SourceType = SourceType.other):
     data = await file.read()

@@ -28,6 +28,7 @@ normalized against RxNorm and stored in the local SQLite file
 Export everything at any time from the UI, or directly:
 
 ```bash
+curl http://localhost:8000/api/export?format=pdf -o summary.pdf   # clinician-readable
 curl http://localhost:8000/api/export?format=csv -o export.csv
 curl http://localhost:8000/api/export?format=json -o export.json
 ```

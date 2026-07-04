@@ -77,9 +77,11 @@ shortcut)**. Now it launches from your desktop like any other program.
   read the document correctly. Anything marked **"check this"** deserves a
   quick look — the app read something it wasn't sure about (usually messy
   handwriting) and says exactly what was unclear.
-- **Export:** the **Export CSV** button gives you a spreadsheet you can
-  print or bring to a doctor's appointment. **Export JSON** is a complete
-  backup of everything.
+- **Share with your doctor:** the **PDF for your doctor** button creates a
+  clean one-page-per-visit summary — medications and supplements with doses,
+  frequencies, and anything the app wasn't sure about marked "PLEASE
+  CONFIRM" in red. Print it or bring it on your phone. **CSV** gives you a
+  spreadsheet; **JSON** is a complete backup of everything.
 
 ## Where your data lives
 

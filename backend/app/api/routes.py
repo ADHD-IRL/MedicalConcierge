@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.agents.medicine_agent import process_medicine_document
 from app.agents.supplement_agent import process_supplement_document
 from app.config import get_settings
+from app.export.pdf_report import build_pdf
 from app.ingestion.file_loader import UnsupportedFileType
 from app.schemas import IngestResponse, RecordKind, SourceType
 from app.storage.store import RecordStore
@@ -68,6 +70,15 @@ def export_records(format: str = "json"):
     if format == "json":
         return {"records": [r.model_dump(mode="json") for r in records]}
 
+    if format == "pdf":
+        pdf_bytes = build_pdf(records)
+        filename = f"medication_summary_{date.today().isoformat()}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
     if format == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer)
@@ -109,4 +120,4 @@ def export_records(format: str = "json"):
             headers={"Content-Disposition": "attachment; filename=medconcierge_export.csv"},
         )
 
-    raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+    raise HTTPException(status_code=400, detail="format must be 'json', 'csv', or 'pdf'")

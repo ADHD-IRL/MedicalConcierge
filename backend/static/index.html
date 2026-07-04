@@ -147,6 +147,7 @@
     border: 1px solid var(--border); width: auto;
     padding: .45rem .8rem; font-size: .8rem;
   }
+  .btn.mini { width: auto; padding: .45rem .8rem; font-size: .8rem; }
 
   .status { font-size: .82rem; color: var(--text-dim); margin-top: .7rem; min-height: 1.2em; }
   .status.err { color: var(--bad); }
@@ -253,8 +254,9 @@
       <button class="chip" data-filter="supplement">Supplements <span class="count" id="cSup"></span></button>
       <button class="chip" data-filter="review">Needs review <span class="count" id="cRev"></span></button>
       <div class="spacer"></div>
-      <a href="/api/export?format=csv" download><button class="btn ghost">Export CSV</button></a>
-      <a href="/api/export?format=json" download><button class="btn ghost">Export JSON</button></a>
+      <a href="/api/export?format=pdf" download><button class="btn mini">&#128424;&#65039; PDF for your doctor</button></a>
+      <a href="/api/export?format=csv" download><button class="btn ghost">CSV</button></a>
+      <a href="/api/export?format=json" download><button class="btn ghost">JSON</button></a>
     </div>
 
     <div id="list"></div>

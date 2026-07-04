@@ -1,0 +1,31 @@
+# Reverse proxy for the single-user Medical Concierge app.
+#
+# This is meant for LAN / Tailscale-only access (see docs/ARCHITECTURE.md
+# section 7) -- there is no public domain, so Caddy issues its own internal
+# self-signed CA cert rather than requesting one from Let's Encrypt.
+#
+# On first run, trust the internal CA root cert on any device you'll use to
+# access this (browser will otherwise warn on every visit):
+#   docker compose exec proxy cat /data/caddy/pki/authorities/local/root.crt
+# Import that into your OS/browser trust store. Alternatively, put Caddy
+# behind `tailscale serve` instead, which handles TLS for you without a
+# custom CA -- see deploy/README.md.
+
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+:443 {
+	tls internal
+
+	encode gzip
+
+	reverse_proxy app:8000
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000"
+	}
+}

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.agents.medicine_agent import process_medicine_document
 from app.agents.supplement_agent import process_supplement_document
 from app.config import get_settings
+from app.export.pdf_report import build_pdf
+from app.interactions.engine import evaluate
 from app.ingestion.file_loader import UnsupportedFileType
 from app.schemas import IngestResponse, RecordKind, SourceType
 from app.storage.store import RecordStore
@@ -18,6 +21,15 @@ router = APIRouter()
 
 def get_store() -> RecordStore:
     return RecordStore(get_settings().db_path)
+
+
+@router.get("/health")
+def health():
+    settings = get_settings()
+    return {
+        "ok": True,
+        "anthropic_key_configured": bool(settings.anthropic_api_key.strip()),
+    }
 
 
 @router.post("/ingest/medicine", response_model=IngestResponse)
@@ -51,6 +63,13 @@ def list_records(kind: RecordKind | None = None):
     return {"records": [r.model_dump(mode="json") for r in records]}
 
 
+@router.get("/findings")
+def list_findings():
+    records = get_store().list_all()
+    findings = evaluate(records)
+    return {"findings": [f.model_dump(mode="json") for f in findings]}
+
+
 @router.get("/export")
 def export_records(format: str = "json"):
     store = get_store()
@@ -58,6 +77,15 @@ def export_records(format: str = "json"):
 
     if format == "json":
         return {"records": [r.model_dump(mode="json") for r in records]}
+
+    if format == "pdf":
+        pdf_bytes = build_pdf(records, findings=evaluate(records))
+        filename = f"medication_summary_{date.today().isoformat()}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
 
     if format == "csv":
         buffer = io.StringIO()
@@ -100,4 +128,4 @@ def export_records(format: str = "json"):
             headers={"Content-Disposition": "attachment; filename=medconcierge_export.csv"},
         )
 
-    raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+    raise HTTPException(status_code=400, detail="format must be 'json', 'csv', or 'pdf'")

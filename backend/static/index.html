@@ -221,6 +221,48 @@
   .warn-ok[hidden] { display: none; }
   .warn-note { font-size: .74rem; color: var(--text-dim); margin-top: .6rem; }
 
+  /* --- medication list --- */
+  .ml-item {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: .7rem .9rem; margin-bottom: .6rem; background: var(--surface);
+  }
+  .ml-item.stopped { opacity: .62; }
+  .ml-head { display: flex; gap: .5rem .6rem; align-items: baseline; flex-wrap: wrap; }
+  .ml-name { font-weight: 650; font-size: .95rem; }
+  .ml-meta { color: var(--text-dim); font-size: .82rem; margin-top: .15rem; }
+  .ml-actions { margin-left: auto; display: flex; gap: .4rem; }
+  .btn.tiny {
+    width: auto; padding: .25rem .6rem; font-size: .74rem;
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+  }
+  .btn.tiny.danger { color: var(--bad); }
+  .chip-status { font-size: .7rem; font-weight: 700; border-radius: 6px; padding: .12rem .4rem; }
+  .chip-status.active { background: var(--good-soft); color: var(--good); }
+  .chip-status.stopped { background: var(--surface-2); color: var(--text-dim); }
+  .ml-edit { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .6rem; }
+  .ml-edit input, .ml-edit select, .ml-add input, .ml-add select {
+    padding: .45rem .6rem; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--text); font-size: .84rem; width: 100%;
+  }
+  .ml-edit .full { grid-column: 1 / -1; }
+  .ml-add { display: grid; grid-template-columns: 110px 1fr 110px 130px auto; gap: .5rem; margin-top: .8rem; }
+  @media (max-width: 700px) { .ml-add { grid-template-columns: 1fr 1fr; } }
+  .ml-history {
+    margin-top: .55rem; border-top: 1px dashed var(--border); padding-top: .5rem;
+    font-size: .76rem; color: var(--text-dim);
+  }
+  .ml-history div { margin: .18rem 0; }
+  .ml-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .9rem; }
+  .ml-toolbar select { width: auto; padding: .4rem .6rem; margin: 0; font-size: .8rem; }
+  .diff-panel {
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+    padding: .8rem 1rem; margin-bottom: .8rem; font-size: .84rem;
+  }
+  .diff-panel h3 { margin: .35rem 0 .2rem; font-size: .8rem; }
+  .diff-added { color: var(--good); }
+  .diff-stopped { color: var(--bad); }
+  .diff-changed { color: var(--warn); }
+
   footer {
     max-width: 1100px; margin: 0 auto 2rem; padding: 0 1.25rem;
     font-size: .75rem; color: var(--text-dim); text-align: center;
@@ -273,6 +315,40 @@
   </section>
 
   <div class="col">
+
+  <section class="card">
+    <h2>Medication list <span class="badge b-kind" id="mlCount"></span></h2>
+
+    <div class="ml-toolbar">
+      <select id="baselineSelect"></select>
+      <button class="btn tiny" id="compareBtn">Compare to baseline</button>
+      <button class="btn tiny" id="newBaselineBtn">Set new baseline</button>
+      <div class="spacer"></div>
+      <label style="font-size:.76rem; display:flex; align-items:center; gap:.3rem; margin:0;">
+        <input type="checkbox" id="showStopped" checked style="width:auto;" /> show stopped
+      </label>
+    </div>
+
+    <div class="diff-panel" id="diffPanel" hidden></div>
+
+    <div id="mlList"></div>
+    <div class="empty" id="mlEmpty">
+      <span class="big">&#128221;</span>
+      Your list builds itself as you add documents &mdash; or add an item by hand below.
+    </div>
+
+    <div class="ml-add">
+      <select id="addKind">
+        <option value="medicine">Medicine</option>
+        <option value="supplement">Supplement</option>
+      </select>
+      <input id="addName" placeholder="Name (e.g. Metformin)" />
+      <input id="addDose" placeholder="Dose (e.g. 500 mg)" />
+      <input id="addFreq" placeholder="How often" />
+      <button class="btn mini" id="addBtn">Add</button>
+    </div>
+    <div class="status" id="mlStatus"></div>
+  </section>
 
   <section class="card">
     <h2>Warnings &amp; recommendations <span id="warnCount" class="badge b-bad" hidden></span></h2>
@@ -383,6 +459,7 @@ $('uploadBtn').addEventListener('click', async () => {
     records = data.records.concat(records);
     render();
     loadFindings();
+    loadMedList();
     const n = data.records.length;
     status.textContent = n === 0
       ? 'Done — no ' + kind + 's found in that document.'
@@ -479,8 +556,9 @@ function renderFindings(findings) {
     : findings.length + ' found';
 
   list.innerHTML = findings.map(f => {
-    let caveat = f.evidence_note + ' Based on entries read with ≥' +
-      Math.round(f.reading_confidence * 100) + '% confidence.';
+    let caveat = f.evidence_note + (f.reading_confidence >= 1
+      ? ' Based on your confirmed medication list.'
+      : ' Based on entries read with ≥' + Math.round(f.reading_confidence * 100) + '% confidence.');
     if (f.needs_record_review) {
       caveat += ' ⚠️ One of these entries is itself marked "check this" — verify it first.';
     }
@@ -495,7 +573,169 @@ function renderFindings(findings) {
   }).join('');
 }
 
-fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); });
+// --- medication list ---
+let mlItems = [];
+let mlBaselines = [];
+let editingId = null;
+let historyOpenId = null;
+
+async function loadMedList() {
+  const res = await fetch('/api/list');
+  const data = await res.json();
+  mlItems = data.items;
+  mlBaselines = data.baselines;
+  renderMedList();
+}
+
+function renderMedList() {
+  const showStopped = $('showStopped').checked;
+  const shown = mlItems.filter(i => showStopped || i.status === 'active');
+  const active = mlItems.filter(i => i.status === 'active').length;
+  $('mlCount').textContent = mlItems.length
+    ? active + ' active' + (mlItems.length - active ? ' · ' + (mlItems.length - active) + ' stopped' : '')
+    : '';
+  $('mlEmpty').hidden = mlItems.length > 0;
+
+  $('baselineSelect').innerHTML = mlBaselines.map(b =>
+    '<option value="' + b.id + '">' + esc(b.name) + ' (' + new Date(b.created_at).toLocaleDateString() + ', ' + b.item_count + (b.item_count === 1 ? ' item' : ' items') + ')</option>'
+  ).join('') || '<option value="">no baseline yet</option>';
+
+  $('mlList').innerHTML = shown.map(i => {
+    const name = i.canonical_name || i.name;
+    const raw = i.canonical_name && i.canonical_name.toLowerCase() !== i.name.toLowerCase()
+      ? '<span class="rec-raw">entered as &ldquo;' + esc(i.name) + '&rdquo;</span>' : '';
+    const meta = [i.dosage, i.frequency].filter(Boolean).map(esc).join(' &middot; ');
+
+    if (editingId === i.id) {
+      return '<div class="ml-item"><div class="ml-head"><span class="ml-name">' + esc(name) + '</span></div>' +
+        '<div class="ml-edit">' +
+        '<input id="ed-dosage" placeholder="Dose" value="' + esc(i.dosage || '') + '" />' +
+        '<input id="ed-frequency" placeholder="How often" value="' + esc(i.frequency || '') + '" />' +
+        '<input id="ed-notes" class="full" placeholder="Notes (e.g. \'per Dr. Chen 7/3\')" value="' + esc(i.notes || '') + '" />' +
+        '<button class="btn mini" onclick="saveEdit(\'' + i.id + '\')">Save</button>' +
+        '<button class="btn tiny" onclick="cancelEdit()">Cancel</button>' +
+        '</div></div>';
+    }
+
+    let html = '<div class="ml-item ' + i.status + '"><div class="ml-head">' +
+      '<span class="ml-name">' + esc(name) + '</span>' + raw +
+      '<span class="badge b-kind">' + esc(i.kind) + '</span>' +
+      '<span class="chip-status ' + i.status + '">' + (i.status === 'active' ? 'ACTIVE' : 'STOPPED') + '</span>' +
+      '<span class="ml-actions">' +
+      '<button class="btn tiny" onclick="startEdit(\'' + i.id + '\')">Edit</button>' +
+      (i.status === 'active'
+        ? '<button class="btn tiny danger" onclick="setStatus(\'' + i.id + '\',\'stopped\')">Stop</button>'
+        : '<button class="btn tiny" onclick="setStatus(\'' + i.id + '\',\'active\')">Restart</button>') +
+      '<button class="btn tiny" onclick="toggleHistory(\'' + i.id + '\')">History</button>' +
+      '</span></div>' +
+      (meta ? '<div class="ml-meta">' + meta + '</div>' : '') +
+      (i.notes ? '<div class="ml-meta">' + esc(i.notes) + '</div>' : '') +
+      '<div class="ml-history" id="hist-' + i.id + '" hidden></div>' +
+      '</div>';
+    return html;
+  }).join('');
+
+  if (historyOpenId) { fillHistory(historyOpenId); }
+}
+
+window.startEdit = (id) => { editingId = id; renderMedList(); };
+window.cancelEdit = () => { editingId = null; renderMedList(); };
+
+window.saveEdit = async (id) => {
+  const body = {
+    dosage: document.getElementById('ed-dosage').value || null,
+    frequency: document.getElementById('ed-frequency').value || null,
+    notes: document.getElementById('ed-notes').value || null,
+  };
+  await fetch('/api/list/items/' + id, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  });
+  editingId = null;
+  await loadMedList(); loadFindings();
+};
+
+window.setStatus = async (id, status) => {
+  await fetch('/api/list/items/' + id, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status}),
+  });
+  await loadMedList(); loadFindings();
+};
+
+window.toggleHistory = async (id) => {
+  historyOpenId = historyOpenId === id ? null : id;
+  renderMedList();
+};
+
+async function fillHistory(id) {
+  const el = document.getElementById('hist-' + id);
+  if (!el) return;
+  el.hidden = false;
+  const res = await fetch('/api/list/history?item_id=' + id);
+  const data = await res.json();
+  el.innerHTML = data.events.map(e =>
+    '<div><strong>' + new Date(e.timestamp).toLocaleString() + '</strong> &mdash; ' +
+    esc(e.action) + ': ' + esc(e.detail) + '</div>'
+  ).join('') || '<div>No history yet.</div>';
+}
+
+$('addBtn').addEventListener('click', async () => {
+  const name = $('addName').value.trim();
+  if (!name) { $('mlStatus').textContent = 'Enter a name first.'; return; }
+  $('addBtn').disabled = true;
+  $('mlStatus').textContent = 'Adding and matching against RxNorm…';
+  try {
+    const res = await fetch('/api/list/items', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        kind: $('addKind').value, name,
+        dosage: $('addDose').value || null, frequency: $('addFreq').value || null,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    $('addName').value = ''; $('addDose').value = ''; $('addFreq').value = '';
+    $('mlStatus').textContent = 'Added.';
+    await loadMedList(); loadFindings();
+  } catch (e) {
+    $('mlStatus').textContent = 'Error: ' + e.message;
+  } finally { $('addBtn').disabled = false; }
+});
+
+$('newBaselineBtn').addEventListener('click', async () => {
+  const name = prompt('Name this baseline (e.g. "After July cardiology visit"):',
+    'Baseline ' + new Date().toLocaleDateString());
+  if (!name) return;
+  await fetch('/api/baselines', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name}),
+  });
+  await loadMedList();
+  $('mlStatus').textContent = 'Baseline saved.';
+});
+
+$('compareBtn').addEventListener('click', async () => {
+  const id = $('baselineSelect').value;
+  const panel = $('diffPanel');
+  if (!id) { panel.hidden = false; panel.textContent = 'No baseline to compare against yet.'; return; }
+  if (!panel.hidden && panel.dataset.baseline === id) { panel.hidden = true; return; }
+  const res = await fetch('/api/list/compare/' + id);
+  const d = await res.json();
+  const li = (i) => esc(i.canonical_name || i.name) + (i.dosage ? ' (' + esc(i.dosage) + ')' : '');
+  panel.dataset.baseline = id;
+  panel.hidden = false;
+  panel.innerHTML =
+    '<strong>Changes since &ldquo;' + esc(d.baseline_name) + '&rdquo;</strong> (' +
+    new Date(d.baseline_created_at).toLocaleDateString() + ') &mdash; ' + d.unchanged_count + ' unchanged' +
+    (d.added.length ? '<h3 class="diff-added">Added (' + d.added.length + ')</h3>' + d.added.map(li).join(', ') : '') +
+    (d.stopped.length ? '<h3 class="diff-stopped">Stopped (' + d.stopped.length + ')</h3>' + d.stopped.map(li).join(', ') : '') +
+    (d.changed.length ? '<h3 class="diff-changed">Changed (' + d.changed.length + ')</h3>' +
+      d.changed.map(c => li(c.item) + ': ' + c.changes.map(ch =>
+        esc(ch.field) + ' &ldquo;' + esc(ch.before || '—') + '&rdquo; &rarr; &ldquo;' + esc(ch.after || '—') + '&rdquo;').join('; ')
+      ).join('<br />') : '') +
+    (!d.added.length && !d.stopped.length && !d.changed.length ? '<br />No changes — the list matches this baseline.' : '');
+});
+
+$('showStopped').addEventListener('change', renderMedList);
+
+fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); loadMedList(); });
 </script>
 </body>
 </html>

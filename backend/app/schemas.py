@@ -95,6 +95,77 @@ class IngestResponse(BaseModel):
     records: list[NormalizedRecord]
 
 
+class ItemStatus(str, Enum):
+    active = "active"
+    stopped = "stopped"
+
+
+class MedListItem(BaseModel):
+    """One entry on the curated medication/supplement list - the living,
+    user-editable 'what I actually take' record, distinct from the raw
+    ingested documents it was built from."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    kind: RecordKind
+    name: str
+    canonical_name: str | None = None
+    rxcui: str | None = None
+    dosage: str | None = None
+    frequency: str | None = None
+    status: ItemStatus = ItemStatus.active
+    notes: str | None = None
+    source_record_id: str | None = Field(
+        None, description="Ingested record this item was created from, if any."
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ListHistoryEvent(BaseModel):
+    """Append-only audit trail entry. Every change to the list - creation,
+    edit, stop/restart, re-sighting in a new document - lands here and is
+    never modified or deleted."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    item_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    action: str  # created | updated | stopped | reactivated | observed
+    detail: str
+    item_snapshot: MedListItem
+
+
+class Baseline(BaseModel):
+    """A named snapshot of the entire list at a point in time. The first one
+    ('Original baseline') is created automatically; the user can set a new
+    one whenever their regimen is confirmed correct."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    items: list[MedListItem]
+
+
+class FieldChange(BaseModel):
+    field: str
+    before: str | None
+    after: str | None
+
+
+class ChangedItem(BaseModel):
+    item: MedListItem
+    changes: list[FieldChange]
+
+
+class BaselineDiff(BaseModel):
+    baseline_id: str
+    baseline_name: str
+    baseline_created_at: datetime
+    added: list[MedListItem]
+    stopped: list[MedListItem]
+    changed: list[ChangedItem]
+    unchanged_count: int
+
+
 class FindingSeverity(str, Enum):
     major = "major"
     moderate = "moderate"

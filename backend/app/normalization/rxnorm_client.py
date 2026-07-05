@@ -9,9 +9,13 @@ match.
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from app.schemas import RxNormMatch
+
+logger = logging.getLogger(__name__)
 
 
 class RxNormClient:
@@ -20,10 +24,20 @@ class RxNormClient:
         self._timeout = timeout
 
     async def find_best_match(self, name: str) -> RxNormMatch:
+        """Best-effort normalization. A network/API failure must never sink
+        the pipeline - the item is kept unnormalized (zero confidence, so it
+        gets flagged for review) and normalization can be retried later."""
         name = name.strip()
         if not name:
             return RxNormMatch(match_score=0.0, normalization_confidence=0.0)
 
+        try:
+            return await self._lookup(name)
+        except httpx.HTTPError as exc:
+            logger.warning("RxNorm unavailable for '%s': %s", name, exc)
+            return RxNormMatch(match_score=0.0, normalization_confidence=0.0)
+
+    async def _lookup(self, name: str) -> RxNormMatch:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             candidates = await self._approximate_term(client, name)
             if not candidates:

@@ -73,6 +73,16 @@ shortcut)**. Now it launches from your desktop like any other program.
   is (bottle photo, handwritten note, …), drag the file in, click
   **Read this document**. Photos from your phone work — email them to
   yourself or use any transfer method, then drop them in.
+- **Your medication list:** the list at the top builds itself as you add
+  documents (the same medicine seen in several documents becomes one entry),
+  and you can add items by hand. Click **Edit** to fix a dose or add a note,
+  **Stop** when you no longer take something (it's kept, greyed out — never
+  deleted), and **History** to see every change ever made to that entry.
+  An **Original baseline** snapshot is saved automatically when your list
+  first gets content; press **Set new baseline** whenever your regimen is
+  confirmed correct, and **Compare to baseline** to see exactly what was
+  added, stopped, or changed since. Warnings always reflect the list — stop
+  a medicine and its warnings clear immediately.
 - **Warnings & recommendations:** every time you add a document, all your
   records are automatically checked against each other — drug-drug
   interactions, supplement and vitamin/mineral interactions, duplicate

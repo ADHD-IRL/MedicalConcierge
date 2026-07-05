@@ -168,7 +168,10 @@ def _finding_block(w: _Writer, finding: Finding) -> None:
     w.text("Involves: " + ", ".join(finding.involved), size=9.0, indent=2, gap=1)
     w.text(finding.explanation, size=9.0, color=_GRAY, indent=2, gap=1)
     w.text(f"Suggested next step: {finding.recommendation}", size=9.0, indent=2, gap=1)
-    caveat = f"{finding.evidence_note} Based on entries read with >= {round(finding.reading_confidence * 100)}% confidence."
+    if finding.reading_confidence >= 1.0:
+        caveat = f"{finding.evidence_note} Based on the patient's confirmed medication list."
+    else:
+        caveat = f"{finding.evidence_note} Based on entries read with >= {round(finding.reading_confidence * 100)}% confidence."
     if finding.needs_record_review:
         caveat += " One or more underlying entries is itself marked PLEASE CONFIRM - verify those first."
     w.text(caveat, size=7.5, color=_GRAY, indent=2, gap=1)

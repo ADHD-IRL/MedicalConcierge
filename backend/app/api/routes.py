@@ -9,9 +9,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.agents.common import make_rxnorm_client
-from app.agents.medicine_agent import process_medicine_document
-from app.agents.supplement_agent import process_supplement_document
+from app.agents.common import make_rxnorm_client, process_document
 from app.config import get_settings
 from app.export.pdf_report import build_pdf
 from app.interactions.engine import evaluate
@@ -48,7 +46,7 @@ def _screening_records():
     return get_store().list_all()
 
 
-async def _run_ingest(file: UploadFile, source_type: SourceType, processor, kind: RecordKind):
+async def _run_ingest(file: UploadFile):
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -57,7 +55,7 @@ async def _run_ingest(file: UploadFile, source_type: SourceType, processor, kind
             f"{MAX_UPLOAD_BYTES // 1_000_000} MB. A photo or a smaller PDF works best.",
         )
     try:
-        records = await processor(file.filename, data, source_type=source_type)
+        records = await process_document(file.filename, data)
     except UnsupportedFileType as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ExtractionTruncated as exc:
@@ -77,7 +75,7 @@ async def _run_ingest(file: UploadFile, source_type: SourceType, processor, kind
 
     get_store().save_all(records)
     get_list_store().sync_from_records(records)
-    return IngestResponse(filename=file.filename, kind=kind, records=records)
+    return IngestResponse(filename=file.filename, records=records)
 
 
 @router.get("/health")
@@ -89,14 +87,23 @@ def health():
     }
 
 
+@router.post("/ingest/document", response_model=IngestResponse)
+async def ingest_document(file: UploadFile):
+    """Unified ingestion: one pass extracts medicines AND supplements, and the
+    model classifies each item's kind and source type from the page itself."""
+    return await _run_ingest(file)
+
+
+# Back-compat aliases: kind/source_type hints are no longer needed - the
+# unified pass classifies every item itself.
 @router.post("/ingest/medicine", response_model=IngestResponse)
 async def ingest_medicine(file: UploadFile, source_type: SourceType = SourceType.other):
-    return await _run_ingest(file, source_type, process_medicine_document, RecordKind.medicine)
+    return await _run_ingest(file)
 
 
 @router.post("/ingest/supplement", response_model=IngestResponse)
 async def ingest_supplement(file: UploadFile, source_type: SourceType = SourceType.other):
-    return await _run_ingest(file, source_type, process_supplement_document, RecordKind.supplement)
+    return await _run_ingest(file)
 
 
 @router.get("/records")
@@ -163,6 +170,8 @@ async def add_list_item(body: NewItemRequest):
         name=body.name.strip(),
         canonical_name=match.canonical_name,
         rxcui=match.rxcui,
+        ingredient_rxcui=match.ingredient_rxcui,
+        ingredient_name=match.ingredient_name,
         dosage=body.dosage,
         frequency=body.frequency,
         notes=body.notes,

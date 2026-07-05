@@ -52,10 +52,15 @@ EDITABLE_FIELDS = ("name", "dosage", "frequency", "notes", "status")
 _COMPARED_FIELDS = ("name", "dosage", "frequency", "status", "notes")
 
 
-def _match_key(kind: str, rxcui: str | None, name: str) -> str:
-    """Identity used to decide 'is this the same medicine': RxCUI when known,
-    otherwise the lowercased name."""
-    return f"{kind}:rxcui:{rxcui}" if rxcui else f"{kind}:name:{name.strip().lower()}"
+def _match_key(kind: str, ingredient_rxcui: str | None, rxcui: str | None, name: str) -> str:
+    """Identity used to decide 'is this the same medicine'. Preference order:
+    ingredient RxCUI (brand and generic share it - 'Eliquis' and 'apixaban'
+    must be ONE item), then the concept RxCUI, then the lowercased name."""
+    if ingredient_rxcui:
+        return f"{kind}:ing:{ingredient_rxcui}"
+    if rxcui:
+        return f"{kind}:rxcui:{rxcui}"
+    return f"{kind}:name:{name.strip().lower()}"
 
 
 class MedListStore:
@@ -120,7 +125,8 @@ class MedListStore:
             (
                 item.id,
                 item.status.value,
-                _match_key(item.kind.value, item.rxcui, item.canonical_name or item.name),
+                _match_key(item.kind.value, item.ingredient_rxcui, item.rxcui,
+                           item.canonical_name or item.name),
                 item.model_dump_json(),
             ),
         )
@@ -177,14 +183,19 @@ class MedListStore:
         'observed' history event (never overwriting user-edited fields)."""
 
         existing = {
-            _match_key(i.kind.value, i.rxcui, i.canonical_name or i.name): i
+            _match_key(i.kind.value, i.ingredient_rxcui, i.rxcui, i.canonical_name or i.name): i
             for i in self.list_items()
         }
         created: list[MedListItem] = []
         with self._connect() as conn:
             for record in records:
                 display = record.normalization.canonical_name or record.extracted.name_as_written
-                key = _match_key(record.kind.value, record.normalization.rxcui, display)
+                key = _match_key(
+                    record.kind.value,
+                    record.normalization.ingredient_rxcui,
+                    record.normalization.rxcui,
+                    display,
+                )
                 if key in existing:
                     current = existing[key]
                     seen = []
@@ -202,6 +213,8 @@ class MedListStore:
                     name=record.extracted.name_as_written,
                     canonical_name=record.normalization.canonical_name,
                     rxcui=record.normalization.rxcui,
+                    ingredient_rxcui=record.normalization.ingredient_rxcui,
+                    ingredient_name=record.normalization.ingredient_name,
                     dosage=record.extracted.dosage,
                     frequency=record.extracted.frequency,
                     source_record_id=record.id,
@@ -307,6 +320,8 @@ def item_to_record(item: MedListItem) -> NormalizedRecord:
         normalization=RxNormMatch(
             rxcui=item.rxcui,
             canonical_name=item.canonical_name,
+            ingredient_rxcui=item.ingredient_rxcui,
+            ingredient_name=item.ingredient_name,
             match_score=100.0 if item.canonical_name else 0.0,
             normalization_confidence=1.0 if item.canonical_name else 0.0,
             source="med_list",

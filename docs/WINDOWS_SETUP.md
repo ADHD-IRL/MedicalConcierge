@@ -69,9 +69,10 @@ shortcut)**. Now it launches from your desktop like any other program.
 
 ## Using the app
 
-- **Add a document:** choose Medicine or Supplement, say what the document
-  is (bottle photo, handwritten note, …), drag the file in, click
-  **Read this document**. Photos from your phone work — email them to
+- **Add a document:** drag the file in and click **Read this document** —
+  that's it. Medicines and supplements are found together automatically, and
+  printed, handwritten, and bottle-photo pages are recognized on their own;
+  there is nothing to select. Photos from your phone work — email them to
   yourself or use any transfer method, then drop them in.
 - **Your medication list:** the list at the top builds itself as you add
   documents (the same medicine seen in several documents becomes one entry),

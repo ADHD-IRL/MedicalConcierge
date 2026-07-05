@@ -44,7 +44,7 @@ multimodal_extractor.extract()      # Claude vision + forced tool-call
 normalization.rxnorm_client         # approximateTerm.json per extracted name
    │                                 # → rxcui + canonical name + match score
    ▼
-agents.medicine_agent / supplement_agent   # combine + compute overall confidence
+agents.common.process_document      # unified pass: combine + compute overall confidence
    │
    ▼
 storage.store                        # SQLite, one row per normalized record

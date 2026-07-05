@@ -128,10 +128,14 @@ def _depletion_findings(records: list[NormalizedRecord]) -> list[Finding]:
 def _duplicate_findings(records: list[NormalizedRecord]) -> list[Finding]:
     findings: list[Finding] = []
 
-    # Same therapeutic class, different active ingredients.
+    # Same therapeutic class, different active ingredients. Records sharing
+    # an ingredient RxCUI are the SAME drug (brand vs generic - e.g. Cozaar
+    # and losartan) and must not be flagged as two class members.
     for class_label, terms in DUPLICATE_CLASSES.items():
         members = [r for r in records if _matches(r, terms)]
-        distinct_names = {_display_name(r).lower() for r in members}
+        distinct_names = {
+            r.normalization.ingredient_rxcui or _display_name(r).lower() for r in members
+        }
         if len(distinct_names) > 1:
             findings.append(
                 _make_finding(
@@ -148,10 +152,12 @@ def _duplicate_findings(records: list[NormalizedRecord]) -> list[Finding]:
                 )
             )
 
-    # The exact same ingredient appearing under multiple records.
+    # The exact same ingredient appearing under multiple records (grouped by
+    # ingredient RxCUI when known, so brand and generic entries group too).
     by_name: dict[str, list[NormalizedRecord]] = {}
     for r in records:
-        by_name.setdefault(_display_name(r).lower(), []).append(r)
+        key = r.normalization.ingredient_rxcui or _display_name(r).lower()
+        by_name.setdefault(key, []).append(r)
     for name, group in by_name.items():
         sources = {r.source_filename for r in group}
         if len(group) > 1 and len(sources) > 1:

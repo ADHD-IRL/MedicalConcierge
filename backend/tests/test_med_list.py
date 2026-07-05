@@ -17,7 +17,7 @@ def store(tmp_path):
     return MedListStore(str(tmp_path / "test.sqlite3"))
 
 
-def _record(name, canonical, rxcui, dose="500 mg", src="doc.pdf"):
+def _record(name, canonical, rxcui, dose="500 mg", src="doc.pdf", ingredient=None):
     return NormalizedRecord(
         kind=RecordKind.medicine,
         extracted=ExtractedItem(
@@ -28,6 +28,8 @@ def _record(name, canonical, rxcui, dose="500 mg", src="doc.pdf"):
         normalization=RxNormMatch(
             rxcui=rxcui, canonical_name=canonical, match_score=100.0,
             normalization_confidence=1.0,
+            ingredient_rxcui=ingredient[0] if ingredient else None,
+            ingredient_name=ingredient[1] if ingredient else None,
         ),
         overall_confidence=0.9, needs_review=False, source_filename=src,
     )
@@ -107,6 +109,26 @@ def test_baseline_diff_added_stopped_changed(store):
     change = diff.changed[0].changes[0]
     assert (change.field, change.before, change.after) == ("dosage", "500 mg", "850 mg")
     assert diff.unchanged_count == 1  # fish oil untouched
+
+
+def test_brand_and_generic_collapse_to_one_item_via_ingredient(store):
+    # Eliquis (brand, its own RxCUI) then apixaban (generic, different RxCUI)
+    # share ingredient rxcui 1364430 -> ONE list item + an observed event.
+    store.sync_from_records(
+        [_record("Eliquis", "Eliquis 5 MG Oral Tablet", "b-123",
+                 ingredient=("1364430", "apixaban"))]
+    )
+    created = store.sync_from_records(
+        [_record("apixaban", "apixaban 5 MG Oral Tablet", "g-456", src="visit2.pdf",
+                 ingredient=("1364430", "apixaban"))]
+    )
+
+    assert created == []
+    items = store.list_items()
+    assert len(items) == 1
+    assert items[0].ingredient_rxcui == "1364430"
+    observed = [e for e in store.history(items[0].id) if e.action == "observed"]
+    assert len(observed) == 1
 
 
 def test_item_to_record_carries_identity_for_screening(store):

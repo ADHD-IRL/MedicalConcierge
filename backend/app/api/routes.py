@@ -4,6 +4,7 @@ import csv
 import io
 from datetime import date
 
+import anthropic
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
@@ -18,9 +19,34 @@ from app.storage.store import RecordStore
 
 router = APIRouter()
 
+MAX_UPLOAD_BYTES = 30_000_000  # sanity cap; images are downscaled after this gate
+
 
 def get_store() -> RecordStore:
     return RecordStore(get_settings().db_path)
+
+
+async def _run_ingest(file: UploadFile, source_type: SourceType, processor, kind: RecordKind):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"That file is {len(data) / 1_000_000:.0f} MB - the limit is "
+            f"{MAX_UPLOAD_BYTES // 1_000_000} MB. A photo or a smaller PDF works best.",
+        )
+    try:
+        records = await processor(file.filename, data, source_type=source_type)
+    except UnsupportedFileType as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except anthropic.APIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The document-reading service returned an error: "
+            f"{getattr(exc, 'message', str(exc))[:300]}",
+        ) from exc
+
+    get_store().save_all(records)
+    return IngestResponse(filename=file.filename, kind=kind, records=records)
 
 
 @router.get("/health")
@@ -34,26 +60,12 @@ def health():
 
 @router.post("/ingest/medicine", response_model=IngestResponse)
 async def ingest_medicine(file: UploadFile, source_type: SourceType = SourceType.other):
-    data = await file.read()
-    try:
-        records = await process_medicine_document(file.filename, data, source_type=source_type)
-    except UnsupportedFileType as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    get_store().save_all(records)
-    return IngestResponse(filename=file.filename, kind=RecordKind.medicine, records=records)
+    return await _run_ingest(file, source_type, process_medicine_document, RecordKind.medicine)
 
 
 @router.post("/ingest/supplement", response_model=IngestResponse)
 async def ingest_supplement(file: UploadFile, source_type: SourceType = SourceType.other):
-    data = await file.read()
-    try:
-        records = await process_supplement_document(file.filename, data, source_type=source_type)
-    except UnsupportedFileType as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    get_store().save_all(records)
-    return IngestResponse(filename=file.filename, kind=RecordKind.supplement, records=records)
+    return await _run_ingest(file, source_type, process_supplement_document, RecordKind.supplement)
 
 
 @router.get("/records")

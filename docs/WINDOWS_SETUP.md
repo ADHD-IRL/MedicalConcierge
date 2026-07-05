@@ -110,6 +110,7 @@ storage, nothing leaves your machine except:
 | Yellow "Setup needed" banner in the app | Your API key isn't set. Close the black window, delete the file `backend\.env`, and double-click the launcher again to re-enter it. |
 | Browser opens before the app is ready ("can't connect") | Wait a few seconds and refresh the page. |
 | "Something went wrong" when reading a document | Check the black window for the real error. Most common: an invalid API key, or no internet connection. |
+| "File too large" | Photos are shrunk automatically, so this should be rare. Single files over 30 MB are rejected — split a huge PDF, or re-save the file as JPG. PDFs are limited to 50 pages. |
 | Want to start completely fresh | Close the app, delete `backend\medconcierge.sqlite3`, and start it again. **This permanently deletes all your records** — export a JSON backup first. |
 | Windows SmartScreen blocks the launcher | Click **More info → Run anyway** (see note in Step 4). |
 

@@ -171,10 +171,20 @@ calibrate its own confidence reporting.
 
 ### 5.2 File → images (`ingestion/file_loader.py`)
 
-`load_as_images()` returns a list of `(png_bytes, mime_type)` tuples:
+`load_as_images()` returns a list of `(image_bytes, mime_type)` tuples:
 
-- Images (`.jpg/.jpeg/.png/.webp`) pass through untouched.
-- **PDFs are always rasterized** to one PNG per page via PyMuPDF at 200 DPI.
+- Small images (`.jpg/.jpeg/.png/.webp`) pass through byte-for-byte.
+- **Oversized images are downscaled and re-encoded.** The vision API rejects
+  individual images over ~5 MB and internally downscales anything past
+  ~1568 px on the long side — so a 12 MP phone photo sent raw is both a
+  "file too large" error and wasted upload. Anything beyond 1568 px or
+  1.5 MB is rendered down to a 1568 px long-side JPEG (quality 80) with
+  PyMuPDF. No accuracy is lost; the API would have discarded those pixels.
+- **PDFs are always rasterized** to one JPEG per page, at the configured DPI
+  but never beyond the same 1568 px cap, with a 50-page guardrail.
+
+The API layer above this adds a 30 MB request cap with a friendly message
+and converts vision-API failures into clean HTTP 502s instead of raw 500s.
 
 Why rasterize even text-based PDFs? Real-world medical PDFs are frequently
 scans or faxes with no text layer. A "try the text layer, fall back to
@@ -327,7 +337,7 @@ one `ANTHROPIC_API_KEY=...` line is enough; everything else has defaults):
 | `RXNORM_BASE_URL` | `https://rxnav.nlm.nih.gov/REST` | swappable for tests/mirrors |
 | `DB_PATH` | `./medconcierge.sqlite3` | Docker sets `/data/medconcierge.sqlite3` |
 | `REVIEW_CONFIDENCE_THRESHOLD` | `0.6` | below this, records are flagged `needs_review` |
-| `PDF_RENDER_DPI` | `200` | rasterization resolution for ingested PDFs |
+| `PDF_RENDER_DPI` | `200` | rasterization resolution for ingested PDFs (output is still capped at 1568 px long-side for the vision API) |
 
 ---
 

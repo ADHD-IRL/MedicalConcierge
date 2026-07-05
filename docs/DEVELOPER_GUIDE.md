@@ -195,10 +195,17 @@ printed page is a trivially easy image for a vision model. One uniform path.
 
 Page images go to Claude alongside a system prompt that makes the model a
 "meticulous medical records transcriptionist." Short documents fit one
-request; long ones are **batched** — pages are grouped so no request exceeds
-~15 MB of raw image bytes (the API caps total request size at ~32 MB, and
-base64 inflates by 4/3), each batch is labeled "part N of M of the same
-document," and the extracted items are merged in order.
+request; long ones are **batched** — at most 5 pages and ~15 MB of raw image
+bytes per request (the API caps total request size at ~32 MB with base64
+inflating by 4/3, and dense pages each cost output tokens), with extracted
+items merged in page order. The output budget is 16 K tokens, and if a
+response still hits that ceiling (`stop_reason == "max_tokens"`, meaning the
+tool-call JSON was cut off) the batch is **split in half and retried** —
+truncation must never be mistaken for "no medications found," which was a
+real field bug: a 5-page facility medication chart produced more item JSON
+than the old 4 K budget, the truncated tool input parsed as empty, and the
+app reported zero records. Malformed individual items are dropped with a
+logged warning rather than failing the whole document.
 Three techniques here are the heart of the ingestion design:
 
 1. **Forced tool call.** The request defines a `record_extraction` tool with

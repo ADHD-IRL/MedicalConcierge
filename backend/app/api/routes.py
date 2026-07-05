@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.export.pdf_report import build_pdf
 from app.interactions.engine import evaluate
 from app.ingestion.file_loader import UnsupportedFileType
+from app.ingestion.multimodal_extractor import ExtractionTruncated
 from app.schemas import IngestResponse, RecordKind, SourceType
 from app.storage.store import RecordStore
 
@@ -38,6 +39,8 @@ async def _run_ingest(file: UploadFile, source_type: SourceType, processor, kind
         records = await processor(file.filename, data, source_type=source_type)
     except UnsupportedFileType as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ExtractionTruncated as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except anthropic.RequestTooLargeError as exc:
         raise HTTPException(
             status_code=413,

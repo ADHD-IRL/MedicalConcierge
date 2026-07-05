@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 
 import anthropic
 
@@ -20,7 +21,17 @@ _TOOL_NAME = "record_extraction"
 # headroom for the prompt. Long documents are sent as several requests and
 # the extracted items merged.
 BATCH_MAX_BYTES = 15_000_000
-BATCH_MAX_IMAGES = 20
+# Dense pages (e.g. a facility medication chart) can each yield many items,
+# and every item costs output tokens - keep batches small so one response
+# never approaches the output ceiling.
+BATCH_MAX_IMAGES = 5
+MAX_OUTPUT_TOKENS = 16384
+
+
+class ExtractionTruncated(RuntimeError):
+    """A single page produced more extraction output than the model can
+    return in one response. Practically unreachable after batch splitting;
+    surfaced as a clear error rather than silently dropping records."""
 
 _ITEM_SCHEMA = {
     "type": "object",
@@ -129,52 +140,94 @@ def extract_records(
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
     batches = _batch_images(images)
+    multi_part = len(batches) > 1
     items: list[ExtractedItem] = []
-    for index, batch in enumerate(batches, start=1):
-        content: list[dict] = []
-        for image_bytes, mime_type in batch:
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": mime_type,
-                        "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
-                    },
-                }
-            )
-        part_note = (
-            f" These pages are part {index} of {len(batches)} of the same document; "
-            "other parts are handled separately - extract only what is visible here."
-            if len(batches) > 1
-            else ""
+    for batch in batches:
+        items.extend(
+            _extract_batch(client, settings, batch, record_kind, source_type, multi_part)
         )
+    return items
+
+
+def _extract_batch(
+    client: anthropic.Anthropic,
+    settings,
+    batch: list[tuple[bytes, str]],
+    record_kind: RecordKind,
+    source_type: SourceType,
+    multi_part: bool,
+) -> list[ExtractedItem]:
+    """One extraction request. If the response hits the output-token ceiling
+    (a very dense document), the batch is split in half and retried rather
+    than silently returning a truncated - possibly empty - item list."""
+
+    content: list[dict] = []
+    for image_bytes, mime_type in batch:
         content.append(
             {
-                "type": "text",
-                "text": f"The source_type for this document is '{source_type.value}' unless "
-                f"individual items clearly indicate otherwise.{part_note} Extract now.",
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime_type,
+                    "data": base64.standard_b64encode(image_bytes).decode("utf-8"),
+                },
             }
         )
+    part_note = (
+        " These pages are part of a longer document processed in sections - "
+        "extract only what is visible here."
+        if multi_part
+        else ""
+    )
+    content.append(
+        {
+            "type": "text",
+            "text": f"The source_type for this document is '{source_type.value}' unless "
+            f"individual items clearly indicate otherwise.{part_note} Extract now.",
+        }
+    )
 
-        response = client.messages.create(
-            model=settings.extraction_model,
-            max_tokens=4096,
-            system=_system_prompt(record_kind),
-            tools=[_TOOL_DEFINITION],
-            tool_choice={"type": "tool", "name": _TOOL_NAME},
-            messages=[{"role": "user", "content": content}],
+    response = client.messages.create(
+        model=settings.extraction_model,
+        max_tokens=MAX_OUTPUT_TOKENS,
+        system=_system_prompt(record_kind),
+        tools=[_TOOL_DEFINITION],
+        tool_choice={"type": "tool", "name": _TOOL_NAME},
+        messages=[{"role": "user", "content": content}],
+    )
+
+    if response.stop_reason == "max_tokens":
+        if len(batch) > 1:
+            mid = len(batch) // 2
+            return _extract_batch(
+                client, settings, batch[:mid], record_kind, source_type, True
+            ) + _extract_batch(
+                client, settings, batch[mid:], record_kind, source_type, True
+            )
+        raise ExtractionTruncated(
+            "One page contains more text than can be extracted in a single "
+            "pass. Try uploading a clearer or cropped version of that page."
         )
-        items.extend(_parse_response(response))
 
-    return items
+    return _parse_response(response)
 
 
 def _parse_response(response: anthropic.types.Message) -> list[ExtractedItem]:
     for block in response.content:
         if block.type == "tool_use" and block.name == _TOOL_NAME:
-            raw_items = block.input.get("items", [])
-            return [ExtractedItem.model_validate(item) for item in raw_items]
+            items: list[ExtractedItem] = []
+            invalid = 0
+            for raw in block.input.get("items", []):
+                try:
+                    items.append(ExtractedItem.model_validate(raw))
+                except Exception:
+                    invalid += 1
+            if invalid:
+                logging.getLogger(__name__).warning(
+                    "Dropped %d malformed extraction item(s) out of %d",
+                    invalid, invalid + len(items),
+                )
+            return items
     raise ValueError(
         f"Model did not return a '{_TOOL_NAME}' tool call: "
         f"{json.dumps([b.type for b in response.content])}"

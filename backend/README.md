@@ -10,7 +10,7 @@ Multimodal medicine & supplement ingestion agents. See
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env   # then fill in ANTHROPIC_API_KEY
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env   # the one required setting
 ```
 
 ## Run

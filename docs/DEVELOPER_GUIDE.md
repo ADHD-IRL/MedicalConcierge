@@ -193,8 +193,12 @@ printed page is a trivially easy image for a vision model. One uniform path.
 
 ### 5.3 Vision extraction (`ingestion/multimodal_extractor.py`)
 
-All page images go to Claude in a **single** request, alongside a system
-prompt that makes the model a "meticulous medical records transcriptionist."
+Page images go to Claude alongside a system prompt that makes the model a
+"meticulous medical records transcriptionist." Short documents fit one
+request; long ones are **batched** — pages are grouped so no request exceeds
+~15 MB of raw image bytes (the API caps total request size at ~32 MB, and
+base64 inflates by 4/3), each batch is labeled "part N of M of the same
+document," and the extracted items are merged in order.
 Three techniques here are the heart of the ingestion design:
 
 1. **Forced tool call.** The request defines a `record_extraction` tool with

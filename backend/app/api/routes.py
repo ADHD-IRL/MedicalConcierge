@@ -38,6 +38,12 @@ async def _run_ingest(file: UploadFile, source_type: SourceType, processor, kind
         records = await processor(file.filename, data, source_type=source_type)
     except UnsupportedFileType as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except anthropic.RequestTooLargeError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail="This document is too large to read in one pass even after "
+            "compression. Try splitting the PDF into smaller parts.",
+        ) from exc
     except anthropic.APIError as exc:
         raise HTTPException(
             status_code=502,

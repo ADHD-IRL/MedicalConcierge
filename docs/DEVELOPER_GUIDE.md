@@ -300,6 +300,41 @@ with explanation + 💡 recommendation + confidence caveat). All rendering is
 
 ---
 
+### 5.9 The curated medication list (`storage/med_list.py`)
+
+Raw ingested records are evidence; the **medication list** is the living,
+user-editable "what I actually take" layer built on top of them. Three
+tables in the same SQLite file:
+
+- **`list_items`** — one row per medicine/supplement. Identity for
+  de-duplication is the RxCUI when known, else the lowercased name, so
+  "Tylenol" from a bottle photo and "acetaminophen" from a visit note
+  become one item. Items are never hard-deleted; "I no longer take this"
+  is `status=stopped`, which preserves history and baseline comparability.
+- **`list_history`** — append-only audit trail. Every mutation (created,
+  updated, stopped, reactivated, or *observed* — the same medicine seen
+  again in a new document, with any dose/frequency discrepancies called
+  out) writes an event with a full item snapshot. Nothing here is ever
+  updated or deleted.
+- **`baselines`** — named full-list snapshots. The first ("Original
+  baseline") is created automatically when the list first gains an item;
+  the user can set a new one whenever their regimen is confirmed.
+  `compare_to_baseline()` buckets the diff into added / stopped / changed
+  (field-level before→after) / unchanged; an item both added *and* stopped
+  since the baseline is treated as a net no-op.
+
+Two integration rules keep it coherent:
+
+1. **Ingestion may create items or log 'observed' events — never overwrite
+   fields.** On-screen edits are the only way fields change; a new document
+   claiming a different dose becomes an observed-with-differences history
+   event for the user to reconcile, not a silent update.
+2. **Screening and the doctor PDF run off the active list** once it has
+   entries (falling back to raw records before then), via
+   `item_to_record()`. Stopping a medicine on screen immediately clears
+   its warnings; curated items carry full confidence since the user has
+   confirmed them.
+
 ## 6. The API surface (`app/api/routes.py`)
 
 | Endpoint | What it does |
@@ -308,8 +343,14 @@ with explanation + 💡 recommendation + confidence caveat). All rendering is
 | `POST /api/ingest/medicine` | multipart upload → full pipeline → stored records returned |
 | `POST /api/ingest/supplement` | same, with the supplement normalization strategy |
 | `GET /api/records?kind=` | all stored records, newest first |
-| `GET /api/findings` | screening results, recomputed on the fly |
-| `GET /api/export?format=json\|csv\|pdf` | full export; PDF is the clinician summary |
+| `GET /api/findings` | screening results, recomputed on the fly (active list items when the list is non-empty) |
+| `GET /api/list` | curated list items + baseline summaries |
+| `POST /api/list/items` | manual add (normalized through RxNorm/local table) |
+| `PATCH /api/list/items/{id}` | on-screen edit: dose, frequency, notes, status |
+| `GET /api/list/history?item_id=` | append-only audit trail |
+| `POST /api/baselines` | snapshot the current list under a name |
+| `GET /api/list/compare/{baseline_id}` | added / stopped / changed since that baseline |
+| `GET /api/export?format=json\|csv\|pdf` | full export; JSON includes the list, baselines, and history; PDF is the clinician summary |
 | `GET /` | serves `static/index.html` |
 
 There is no auth: the server binds to `127.0.0.1` in desktop mode, and in

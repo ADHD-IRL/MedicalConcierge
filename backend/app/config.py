@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     db_path: str = "./medconcierge.sqlite3"
     review_confidence_threshold: float = 0.6
     pdf_render_dpi: int = 200
+    enable_verification_pass: bool = True
 
 
 @lru_cache

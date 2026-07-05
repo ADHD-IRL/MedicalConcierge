@@ -289,20 +289,10 @@
 <main>
   <section class="card">
     <h2>Add a document</h2>
-
-    <div class="seg" id="kindSeg">
-      <button data-kind="medicine" class="active">&#128138; Medicine</button>
-      <button data-kind="supplement">&#127793; Supplement</button>
-    </div>
-
-    <label for="sourceType">What is it?</label>
-    <select id="sourceType">
-      <option value="other">Not sure / other</option>
-      <option value="bottle_label">Photo of a bottle label</option>
-      <option value="handwritten_note">Handwritten note</option>
-      <option value="printed_document">Printed document</option>
-      <option value="pdf_page">PDF from a doctor / portal</option>
-    </select>
+    <p style="font-size:.8rem; color:var(--text-dim); margin:0 0 .8rem;">
+      Medicines <em>and</em> supplements are found automatically &mdash; printed,
+      handwritten, or bottle photos, no need to say which.
+    </p>
 
     <div class="drop" id="drop">
       <span class="big">&#128228;</span>
@@ -398,7 +388,6 @@
 
 <script>
 let records = [];
-let kind = 'medicine';
 let filter = 'all';
 
 const $ = (id) => document.getElementById(id);
@@ -414,13 +403,6 @@ fetch('/api/health').then(r => r.json()).then(h => {
     $('setupBanner').classList.add('show');
   }
 }).catch(() => { $('healthText').textContent = 'Offline'; });
-
-// --- kind toggle ---
-$('kindSeg').addEventListener('click', (e) => {
-  const btn = e.target.closest('button'); if (!btn) return;
-  kind = btn.dataset.kind;
-  document.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('active', b === btn));
-});
 
 // --- drop zone ---
 const drop = $('drop'), fileInput = $('file');
@@ -449,7 +431,7 @@ $('uploadBtn').addEventListener('click', async () => {
   const fd = new FormData();
   fd.append('file', fileInput.files[0]);
   try {
-    const res = await fetch('/api/ingest/' + kind + '?source_type=' + $('sourceType').value, { method: 'POST', body: fd });
+    const res = await fetch('/api/ingest/document', { method: 'POST', body: fd });
     if (!res.ok) {
       let msg = res.statusText;
       try { msg = (await res.json()).detail || msg; } catch {}
@@ -462,7 +444,7 @@ $('uploadBtn').addEventListener('click', async () => {
     loadMedList();
     const n = data.records.length;
     status.textContent = n === 0
-      ? 'Done — no ' + kind + 's found in that document.'
+      ? 'Done — no medicines or supplements found in that document.'
       : 'Done — added ' + n + ' record' + (n > 1 ? 's' : '') + '.';
     fileInput.value = '';
     $('dropText').innerHTML = 'Drag a file here, or click to choose<br /><small>PDF, JPG, PNG or WebP</small>';

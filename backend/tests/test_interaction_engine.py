@@ -10,7 +10,8 @@ from app.schemas import (
 )
 
 
-def _rec(kind, name, canonical=None, confidence=0.9, needs_review=False, src="doc.pdf"):
+def _rec(kind, name, canonical=None, confidence=0.9, needs_review=False, src="doc.pdf",
+         ingredient_rxcui=None):
     return NormalizedRecord(
         kind=kind,
         extracted=ExtractedItem(
@@ -23,6 +24,7 @@ def _rec(kind, name, canonical=None, confidence=0.9, needs_review=False, src="do
         normalization=RxNormMatch(
             rxcui=None,
             canonical_name=canonical,
+            ingredient_rxcui=ingredient_rxcui,
             match_score=100.0 if canonical else 0.0,
             normalization_confidence=1.0 if canonical else 0.0,
         ),
@@ -139,6 +141,33 @@ def test_findings_sorted_major_first_and_confidence_propagates():
     assert severities == sorted(
         severities, key=lambda s: {"major": 0, "moderate": 1, "info": 2}[s.value]
     )
+
+
+def test_brand_generic_same_ingredient_not_flagged_as_duplicate_class():
+    # Cozaar and losartan share ingredient 52175: they are the SAME drug,
+    # not "two different blood-pressure medicines".
+    findings = evaluate([
+        _rec(RecordKind.medicine, "losartan", "losartan", src="visit_a.pdf",
+             ingredient_rxcui="52175"),
+        _rec(RecordKind.medicine, "Cozaar", "losartan potassium 50 MG [Cozaar]",
+             src="visit_b.pdf", ingredient_rxcui="52175"),
+    ])
+
+    class_dups = [f for f in findings if f.rule_id.startswith("duplicate-class")]
+    assert class_dups == []
+    # they DO group as the same-medicine-in-two-documents info finding
+    entry_dups = [f for f in findings if f.rule_id.startswith("duplicate-entry")]
+    assert len(entry_dups) == 1
+
+
+def test_different_ingredients_same_class_still_flagged():
+    findings = evaluate([
+        _rec(RecordKind.medicine, "losartan", "losartan", ingredient_rxcui="52175"),
+        _rec(RecordKind.medicine, "lisinopril", "lisinopril", ingredient_rxcui="29046"),
+    ])
+
+    class_dups = [f for f in findings if f.rule_id.startswith("duplicate-class")]
+    assert len(class_dups) == 1
 
 
 def test_word_boundary_matching_avoids_substring_false_positives():

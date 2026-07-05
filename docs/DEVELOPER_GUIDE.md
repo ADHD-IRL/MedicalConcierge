@@ -102,7 +102,7 @@ MedicalConcierge/
     │   ├── api/routes.py        # every HTTP endpoint
     │   ├── ingestion/           # file -> images -> extracted items
     │   ├── normalization/       # names -> RxNorm codes
-    │   ├── agents/              # pipeline orchestration per record kind
+    │   ├── agents/              # pipeline orchestration (unified document pass)
     │   ├── interactions/        # screening rules + engine
     │   ├── export/              # clinician PDF builder
     │   └── storage/             # SQLite persistence
@@ -159,15 +159,18 @@ only as trustworthy as the shakiest reading underneath it.
 ## 5. Life of a document
 
 The best way to understand the app is to follow one upload end to end. Say
-the user photographs a pill bottle and clicks **Read this document** with
-"Medicine" selected.
+the user photographs a pill bottle and clicks **Read this document**.
 
-### 5.1 Upload (`static/index.html` → `POST /api/ingest/medicine`)
+### 5.1 Upload (`static/index.html` → `POST /api/ingest/document`)
 
-The frontend sends a `multipart/form-data` request with the file and a
-`source_type` query parameter (`bottle_label`, `handwritten_note`, ...).
-That hint is passed through to the extraction prompt so the model can
-calibrate its own confidence reporting.
+The frontend sends a `multipart/form-data` request with just the file. There
+is deliberately nothing else to select: a field audit showed that user-picked
+type hints (medicine vs supplement, printed vs handwritten) *cause* errors on
+real mixed documents — a facility medication chart contains both kinds and
+both writing styles at once, and an upload labeled "medicine" used to skip
+every supplement on it. The model classifies each item's `kind` and
+`source_type` from the page itself. (The old `/ingest/medicine` and
+`/ingest/supplement` endpoints remain as aliases to the same unified pass.)
 
 ### 5.2 File → images (`ingestion/file_loader.py`)
 
@@ -224,37 +227,66 @@ Three techniques here are the heart of the ingestion design:
    ambiguous items *and say so* in `ambiguities` rather than silently
    resolving or omitting them, must report verbatim `raw_text` for auditing,
    and must never infer a drug identity the visible text doesn't support.
+   Field-audit-driven rules: exactly ONE item per prescription (a line
+   showing "Eliquis (apixaban)" is one item, not two); a crossed-out/
+   superseded dose belongs in the current item's `ambiguities`, never as a
+   separate item; and after the first pass the model re-scans specifically
+   for supplements/vitamins/minerals — the most commonly missed class.
+
+4. **A verification pass** (`ENABLE_VERIFICATION_PASS`, default on): each
+   batch gets a second look — same pages plus the list of what was already
+   extracted, with instructions to report ONLY missing items. This is the
+   recall net for the worst failure class (an entire category of items
+   silently skipped). Best-effort: its failure never sinks an upload, and
+   name-level de-dup guards against the model repeating known items.
 
 ### 5.4 Normalization (`normalization/`)
 
 Each extracted name goes to RxNorm's `approximateTerm.json` endpoint —
-purpose-built for misspellings, brand names, and OCR noise. The client takes
-the highest-scoring candidate, resolves its canonical name via a second
-`rxcui/{id}/property.json` call, and converts RxNorm's 0–100 score into
-`normalization_confidence`.
+purpose-built for misspellings, brand names, and OCR noise — queried with
+`option=1` (current concepts only), so retired concepts like "INSULIN BEEF
+LENTE" can never win. Candidate selection is then accuracy-hardened in
+three steps (all from a field audit of real medication charts):
+
+1. **Route/form-aware re-ranking**: an item extracted as an oral tablet
+   heavily penalizes candidates whose names say Injection/Injectable/
+   Cartridge/Pen (and vice versa) — this is what stopped oral pantoprazole
+   from mapping to "pantoprazole Injection" and triggering a false
+   duplicate-acid-reducer warning.
+2. **LLM adjudication for the ambiguous minority**: when the top candidates
+   are within 15 points or a route conflict was seen, one cheap text-only
+   call shows the model the extracted context plus the top-5 candidates and
+   asks it to pick (or say "none"). Deterministic ranking handles the easy
+   majority; the LLM only referees genuinely close calls.
+3. **Ingredient resolution**: the winner is resolved to its TTY=IN
+   ingredient (`/rxcui/{id}/related.json?tty=IN`). Brand and generic share
+   an ingredient RxCUI — this is the identity the medication list and the
+   screening engine use, so "Eliquis" and "apixaban" become one entry
+   instead of two (and Cozaar+losartan stopped being flagged as "two
+   different blood-pressure medicines").
 
 So *"Tylenol"* — however the doctor scrawled it — becomes
-`rxcui=161, canonical_name="acetaminophen"`. That's what makes downstream
+`rxcui=202433, ingredient=acetaminophen`. That's what makes downstream
 screening possible: every rule matches against canonical vocabulary, not
 against whatever was written.
 
-Supplements get one extra step (`agents/supplement_agent.py`): if RxNorm's
-best score is below 50, a curated ~40-entry local synonym table
-(`supplement_terms.py`) is tried — RxNorm has vitamins but not most herbal
-products. Table matches get a fixed, honest `normalization_confidence` of
-0.75 and `source="local_supplement_table"`. The production plan replaces
-this table with TRC NatMed Pro (licensed) behind the same interface.
+Supplement-kind items get one extra step: if RxNorm's best score is below
+50, a curated ~40-entry local synonym table (`supplement_terms.py`) is
+tried — RxNorm has vitamins but not most herbal products. Table matches get
+a fixed, honest `normalization_confidence` of 0.75 and
+`source="local_supplement_table"`. The production plan replaces this table
+with TRC NatMed Pro (licensed) behind the same interface.
 
 If neither source matches, the record is stored anyway with confidence 0 —
-**flagged `unnormalized`, never silently dropped, never guessed.**
+**flagged `unnormalized`, never silently dropped, never guessed.** RxNorm
+being unreachable degrades the same way instead of failing the upload.
 
 ### 5.5 Orchestration (`agents/`)
 
-`agents/common.py:process_document()` is the whole pipeline in ~20 lines:
-load images → extract → for each item, normalize → `NormalizedRecord.build()`.
-The medicine and supplement agents are thin wrappers that inject their own
-normalization strategy as an async callable. That's the entire "agent
-framework" — dependency injection of one function.
+`agents/common.py:process_document()` is the whole pipeline in ~30 lines:
+load images → single-pass extract (both kinds) → for each item, normalize
+per its model-assigned kind → `NormalizedRecord.build()`. That's the entire
+"agent framework" — plain functions.
 
 ### 5.6 Storage (`storage/store.py`)
 
@@ -340,8 +372,8 @@ Two integration rules keep it coherent:
 | Endpoint | What it does |
 |---|---|
 | `GET /api/health` | `{ok, anthropic_key_configured}` — drives the UI's "Setup needed" banner |
-| `POST /api/ingest/medicine` | multipart upload → full pipeline → stored records returned |
-| `POST /api/ingest/supplement` | same, with the supplement normalization strategy |
+| `POST /api/ingest/document` | multipart upload → unified pipeline (medicines + supplements, model-classified) → stored records returned |
+| `POST /api/ingest/medicine` / `.../supplement` | back-compat aliases for the same unified pass |
 | `GET /api/records?kind=` | all stored records, newest first |
 | `GET /api/findings` | screening results, recomputed on the fly (active list items when the list is non-empty) |
 | `GET /api/list` | curated list items + baseline summaries |

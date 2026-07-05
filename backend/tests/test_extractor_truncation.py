@@ -1,13 +1,14 @@
 import pytest
 
 import app.ingestion.multimodal_extractor as me
-from app.schemas import RecordKind, SourceType
+from app.config import Settings
 
 
-def _item(name: str) -> dict:
+def _item(name: str, kind: str = "medicine") -> dict:
     return {
         "raw_text": f"{name} 5mg once daily",
         "name_as_written": name,
+        "kind": kind,
         "source_type": "printed_document",
         "extraction_confidence": 0.9,
         "ambiguities": [],
@@ -48,9 +49,13 @@ class FakeClient:
         self.messages = _Messages()
 
 
-def _run(monkeypatch, fake, images):
+def _run(monkeypatch, fake, images, verification=False):
+    settings = Settings(
+        anthropic_api_key="test-key", enable_verification_pass=verification
+    )
+    monkeypatch.setattr(me, "get_settings", lambda: settings)
     monkeypatch.setattr(me.anthropic, "Anthropic", lambda api_key: fake)
-    return me.extract_records(images, RecordKind.medicine, SourceType.printed_document)
+    return me.extract_records(images)
 
 
 PAGES = [(b"page-one", "image/jpeg"), (b"page-two", "image/jpeg")]
@@ -105,3 +110,54 @@ def test_dense_document_batches_capped_at_five_pages(monkeypatch):
 
     assert [n for n, _ in fake.calls] == [5, 2]
     assert len(items) == 2
+
+
+def test_single_pass_extracts_mixed_kinds(monkeypatch):
+    fake = FakeClient([
+        FakeResponse([_item("Metformin", "medicine"), _item("Vitamin D3", "supplement")]),
+    ])
+
+    items = _run(monkeypatch, fake, [PAGES[0]])
+
+    assert [i.kind.value for i in items] == ["medicine", "supplement"]
+
+
+def test_verification_pass_recovers_missed_items(monkeypatch):
+    fake = FakeClient([
+        FakeResponse([_item("Metformin")]),                       # first pass
+        FakeResponse([_item("Magnesium Glycinate", "supplement")]),  # verification finds a miss
+    ])
+
+    items = _run(monkeypatch, fake, [PAGES[0]], verification=True)
+
+    assert [i.name_as_written for i in items] == ["Metformin", "Magnesium Glycinate"]
+    assert len(fake.calls) == 2
+
+
+def test_verification_pass_dedupes_repeats_and_survives_failure(monkeypatch):
+    # verification wrongly repeats an existing item -> dropped
+    fake = FakeClient([
+        FakeResponse([_item("Metformin")]),
+        FakeResponse([_item("Metformin")]),
+    ])
+    items = _run(monkeypatch, fake, [PAGES[0]], verification=True)
+    assert [i.name_as_written for i in items] == ["Metformin"]
+
+    # verification call blowing up must not sink the upload
+    class ExplodingClient(FakeClient):
+        def __init__(self, script):
+            super().__init__(script)
+            outer = self
+            real_create = self.messages.create
+
+            class _Messages:
+                def create(self, **kwargs):
+                    if len(outer.calls) >= 1:
+                        raise RuntimeError("boom")
+                    return real_create(**kwargs)
+
+            self.messages = _Messages()
+
+    fake2 = ExplodingClient([FakeResponse([_item("Lisinopril")])])
+    items2 = _run(monkeypatch, fake2, [PAGES[0]], verification=True)
+    assert [i.name_as_written for i in items2] == ["Lisinopril"]

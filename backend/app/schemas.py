@@ -28,6 +28,11 @@ class ExtractedItem(BaseModel):
 
     raw_text: str = Field(..., description="Verbatim text as it appears on the source.")
     name_as_written: str = Field(..., description="The drug/supplement name as written.")
+    kind: RecordKind = Field(
+        RecordKind.medicine,
+        description="Model-assigned classification: prescription/OTC medicine vs "
+        "dietary supplement/vitamin/mineral/herbal product.",
+    )
     dosage: str | None = Field(None, description="e.g. '500 mg', '10 mcg'.")
     form: str | None = Field(None, description="e.g. tablet, capsule, liquid, patch.")
     route: str | None = Field(None, description="e.g. oral, topical, injection.")
@@ -51,6 +56,11 @@ class ExtractedItem(BaseModel):
 class RxNormMatch(BaseModel):
     rxcui: str | None = None
     canonical_name: str | None = None
+    ingredient_rxcui: str | None = Field(
+        None, description="RxCUI of the underlying ingredient (TTY=IN) - brand and "
+        "generic forms of the same drug share this, which is what de-duplicates them."
+    )
+    ingredient_name: str | None = None
     match_score: float = Field(0.0, ge=0.0, le=100.0)
     normalization_confidence: float = Field(0.0, ge=0.0, le=1.0)
     source: str = Field("rxnorm", description="Which normalization source matched.")
@@ -91,7 +101,9 @@ class NormalizedRecord(BaseModel):
 
 class IngestResponse(BaseModel):
     filename: str
-    kind: RecordKind
+    kind: RecordKind | None = Field(
+        None, description="Unset for unified ingestion - each record carries its own kind."
+    )
     records: list[NormalizedRecord]
 
 
@@ -110,6 +122,8 @@ class MedListItem(BaseModel):
     name: str
     canonical_name: str | None = None
     rxcui: str | None = None
+    ingredient_rxcui: str | None = None
+    ingredient_name: str | None = None
     dosage: str | None = None
     frequency: str | None = None
     status: ItemStatus = ItemStatus.active

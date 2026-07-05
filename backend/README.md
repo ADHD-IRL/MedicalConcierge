@@ -10,7 +10,7 @@ Multimodal medicine & supplement ingestion agents. See
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env   # then fill in ANTHROPIC_API_KEY
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env   # the one required setting
 ```
 
 ## Run
@@ -28,6 +28,7 @@ normalized against RxNorm and stored in the local SQLite file
 Export everything at any time from the UI, or directly:
 
 ```bash
+curl http://localhost:8000/api/export?format=pdf -o summary.pdf   # clinician-readable
 curl http://localhost:8000/api/export?format=csv -o export.csv
 curl http://localhost:8000/api/export?format=json -o export.json
 ```

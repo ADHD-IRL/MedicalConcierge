@@ -2,139 +2,500 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Medical Concierge - Ingestion MVP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Medical Concierge</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.4rem; }
-  .row { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
-  .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; flex: 1; min-width: 280px; }
-  label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.25rem; }
-  select, input[type=file] { width: 100%; margin-bottom: 0.75rem; }
-  button { padding: 0.5rem 1rem; border-radius: 6px; border: none; background: #2b6cb0; color: white; cursor: pointer; }
-  button:disabled { background: #aaa; }
-  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.85rem; }
-  th, td { border-bottom: 1px solid #eee; padding: 0.4rem; text-align: left; vertical-align: top; }
-  .conf-high { color: #1a7f37; font-weight: 600; }
-  .conf-med { color: #9a6700; font-weight: 600; }
-  .conf-low { color: #cf222e; font-weight: 600; }
-  .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #fbe6e6; color: #cf222e; }
-  #status { font-size: 0.85rem; color: #555; }
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f0f2f5;
+    --border: #e3e6ea;
+    --text: #1c2430;
+    --text-dim: #5b6673;
+    --accent: #2563eb;
+    --accent-soft: #eaf0fe;
+    --good: #15803d;
+    --good-soft: #e8f6ee;
+    --warn: #a16207;
+    --warn-soft: #fdf3d8;
+    --bad: #b91c1c;
+    --bad-soft: #fdeaea;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(16, 24, 40, .07), 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10151c;
+      --surface: #1a2230;
+      --surface-2: #232d3d;
+      --border: #2e3948;
+      --text: #e8edf3;
+      --text-dim: #97a3b2;
+      --accent: #5b8def;
+      --accent-soft: #1e2c47;
+      --good: #4ade80;
+      --good-soft: #14301f;
+      --warn: #fbbf24;
+      --warn-soft: #382b10;
+      --bad: #f87171;
+      --bad-soft: #3b1a1a;
+      --shadow: 0 1px 3px rgba(0, 0, 0, .4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: .9rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: var(--accent);
+    display: grid; place-items: center;
+    color: #fff; font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 1.05rem; margin: 0; font-weight: 650; }
+  header .sub { font-size: .78rem; color: var(--text-dim); margin-top: -2px; }
+  .spacer { flex: 1; }
+  .health {
+    display: flex; align-items: center; gap: .45rem;
+    font-size: .8rem; color: var(--text-dim);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; }
+  .dot.ok { background: var(--good); }
+  .dot.warn { background: var(--warn); }
+
+  .banner {
+    margin: 1rem auto 0; max-width: 1100px;
+    background: var(--warn-soft); color: var(--warn);
+    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+    border-radius: var(--radius);
+    padding: .7rem 1rem; font-size: .87rem;
+    display: none;
+  }
+  .banner.show { display: block; }
+  .banner code { background: rgba(0,0,0,.08); padding: .05rem .35rem; border-radius: 4px; }
+
+  main {
+    max-width: 1100px; margin: 1.25rem auto 3rem; padding: 0 1.25rem;
+    display: grid; grid-template-columns: 360px 1fr; gap: 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+  }
+  .card h2 { font-size: .95rem; margin: 0 0 1rem; font-weight: 650; }
+
+  .seg {
+    display: grid; grid-template-columns: 1fr 1fr;
+    background: var(--surface-2);
+    border-radius: 9px; padding: 3px; margin-bottom: 1rem;
+  }
+  .seg button {
+    border: none; background: transparent; color: var(--text-dim);
+    padding: .5rem; border-radius: 7px; font-size: .87rem; font-weight: 600;
+    cursor: pointer; transition: all .15s;
+  }
+  .seg button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
+  label { display: block; font-size: .78rem; font-weight: 600; color: var(--text-dim); margin: 0 0 .3rem; }
+  select {
+    width: 100%; padding: .55rem .7rem; margin-bottom: 1rem;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--text); font-size: .88rem;
+  }
+
+  .drop {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 1.6rem 1rem; text-align: center; cursor: pointer;
+    color: var(--text-dim); font-size: .87rem;
+    transition: border-color .15s, background .15s;
+    margin-bottom: 1rem;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .drop .big { font-size: 1.6rem; display: block; margin-bottom: .3rem; }
+  .drop .picked { color: var(--text); font-weight: 600; word-break: break-all; }
+
+  .btn {
+    width: 100%; padding: .65rem; border: none; border-radius: 9px;
+    background: var(--accent); color: #fff; font-size: .92rem; font-weight: 650;
+    cursor: pointer; transition: opacity .15s;
+  }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.ghost {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--border); width: auto;
+    padding: .45rem .8rem; font-size: .8rem;
+  }
+  .btn.mini { width: auto; padding: .45rem .8rem; font-size: .8rem; }
+
+  .status { font-size: .82rem; color: var(--text-dim); margin-top: .7rem; min-height: 1.2em; }
+  .status.err { color: var(--bad); }
+  .spin {
+    display: inline-block; width: 12px; height: 12px; margin-right: .4rem;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1rem; }
+  .chip {
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text-dim); border-radius: 999px;
+    padding: .32rem .8rem; font-size: .8rem; font-weight: 600; cursor: pointer;
+  }
+  .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip .count { opacity: .7; font-weight: 500; }
+
+  .rec {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: .9rem 1rem; margin-bottom: .7rem; background: var(--surface);
+  }
+  .rec-top { display: flex; flex-wrap: wrap; gap: .5rem .6rem; align-items: baseline; }
+  .rec-name { font-weight: 650; font-size: .98rem; }
+  .rec-raw { color: var(--text-dim); font-size: .8rem; }
+  .rec-meta { color: var(--text-dim); font-size: .83rem; margin-top: .25rem; }
+  .rec-notes {
+    margin-top: .5rem; font-size: .8rem; color: var(--warn);
+    background: var(--warn-soft); border-radius: 7px; padding: .4rem .6rem;
+  }
+  .badges { margin-left: auto; display: flex; gap: .4rem; flex-wrap: wrap; }
+  .badge {
+    font-size: .72rem; font-weight: 700; border-radius: 6px;
+    padding: .15rem .45rem; white-space: nowrap;
+  }
+  .b-kind { background: var(--surface-2); color: var(--text-dim); text-transform: capitalize; }
+  .b-good { background: var(--good-soft); color: var(--good); }
+  .b-warn { background: var(--warn-soft); color: var(--warn); }
+  .b-bad  { background: var(--bad-soft);  color: var(--bad); }
+
+  .empty {
+    text-align: center; color: var(--text-dim); padding: 3rem 1rem; font-size: .9rem;
+  }
+  .empty .big { font-size: 2rem; display: block; margin-bottom: .5rem; }
+
+  .col { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+
+  .warn-item {
+    border: 1px solid var(--border); border-left: 4px solid var(--text-dim);
+    border-radius: 10px; padding: .8rem .95rem; margin-bottom: .7rem;
+    background: var(--surface);
+  }
+  .warn-item.sev-major { border-left-color: #dc2626; }
+  .warn-item.sev-moderate { border-left-color: #d97706; }
+  .warn-item.sev-info { border-left-color: var(--accent); }
+  .warn-head { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+  .warn-title { font-weight: 650; font-size: .92rem; }
+  .warn-involves { font-size: .8rem; color: var(--text-dim); margin-top: .15rem; }
+  .warn-body { font-size: .84rem; color: var(--text-dim); margin-top: .35rem; }
+  .warn-rec {
+    margin-top: .5rem; font-size: .84rem;
+    background: var(--accent-soft); color: var(--text);
+    border-radius: 7px; padding: .45rem .65rem;
+  }
+  .warn-caveat { font-size: .72rem; color: var(--text-dim); margin-top: .45rem; }
+  .warn-ok {
+    display: flex; gap: .6rem; align-items: center;
+    color: var(--good); font-size: .88rem; padding: .4rem 0;
+  }
+  .warn-ok[hidden] { display: none; }
+  .warn-note { font-size: .74rem; color: var(--text-dim); margin-top: .6rem; }
+
+  footer {
+    max-width: 1100px; margin: 0 auto 2rem; padding: 0 1.25rem;
+    font-size: .75rem; color: var(--text-dim); text-align: center;
+  }
 </style>
 </head>
 <body>
-  <h1>Medical Concierge - Ingestion MVP</h1>
-  <p>Upload a PDF or photo (visit note, prescription, pill/supplement bottle, handwritten note).
-     Extraction is multimodal (reads the image directly); every item is normalized against RxNorm.</p>
 
-  <div class="row">
-    <div class="card">
-      <label for="kind">Record type</label>
-      <select id="kind">
-        <option value="medicine">Medicine</option>
-        <option value="supplement">Supplement</option>
-      </select>
-
-      <label for="sourceType">Source type</label>
-      <select id="sourceType">
-        <option value="other">Other / not sure</option>
-        <option value="bottle_label">Bottle label</option>
-        <option value="handwritten_note">Handwritten note</option>
-        <option value="printed_document">Printed document</option>
-        <option value="pdf_page">PDF</option>
-      </select>
-
-      <label for="file">File (pdf, jpg, png, webp)</label>
-      <input type="file" id="file" accept=".pdf,.jpg,.jpeg,.png,.webp" />
-
-      <button id="uploadBtn">Ingest document</button>
-      <div id="status"></div>
-    </div>
+<header>
+  <div class="logo">&#9877;</div>
+  <div>
+    <h1>Medical Concierge</h1>
+    <div class="sub">Your personal medication &amp; supplement record</div>
   </div>
+  <div class="spacer"></div>
+  <div class="health"><span class="dot" id="healthDot"></span><span id="healthText">Checking&hellip;</span></div>
+</header>
 
-  <h2>Extracted &amp; normalized records</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Name (as written)</th>
-        <th>Normalized</th>
-        <th>Dose / Freq</th>
-        <th>Confidence</th>
-        <th>Notes</th>
-      </tr>
-    </thead>
-    <tbody id="resultsBody"></tbody>
-  </table>
+<div class="banner" id="setupBanner">
+  <strong>Setup needed:</strong> no Anthropic API key is configured, so document reading is disabled.
+  Close this window, run the launcher again, and paste your key when asked (or edit <code>backend\.env</code>).
+</div>
 
-  <p><a href="/api/export?format=csv">Export all records (CSV)</a> ·
-     <a href="/api/export?format=json">Export all records (JSON)</a></p>
+<main>
+  <section class="card">
+    <h2>Add a document</h2>
+
+    <div class="seg" id="kindSeg">
+      <button data-kind="medicine" class="active">&#128138; Medicine</button>
+      <button data-kind="supplement">&#127793; Supplement</button>
+    </div>
+
+    <label for="sourceType">What is it?</label>
+    <select id="sourceType">
+      <option value="other">Not sure / other</option>
+      <option value="bottle_label">Photo of a bottle label</option>
+      <option value="handwritten_note">Handwritten note</option>
+      <option value="printed_document">Printed document</option>
+      <option value="pdf_page">PDF from a doctor / portal</option>
+    </select>
+
+    <div class="drop" id="drop">
+      <span class="big">&#128228;</span>
+      <span id="dropText">Drag a file here, or click to choose<br /><small>PDF, JPG, PNG or WebP</small></span>
+    </div>
+    <input type="file" id="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden />
+
+    <button class="btn" id="uploadBtn">Read this document</button>
+    <div class="status" id="status"></div>
+  </section>
+
+  <div class="col">
+
+  <section class="card">
+    <h2>Warnings &amp; recommendations <span id="warnCount" class="badge b-bad" hidden></span></h2>
+    <div id="warnList"></div>
+    <div class="warn-ok" id="warnOk" hidden>
+      <span>&#9989;</span>
+      <span>No interactions found between your current records.</span>
+    </div>
+    <div class="empty" id="warnEmpty">
+      <span class="big">&#128737;&#65039;</span>
+      Add your medicines and supplements and they'll be checked against each other automatically.
+    </div>
+    <div class="warn-note">Screened against a built-in list of well-documented drug&ndash;drug,
+      drug&ndash;supplement, and vitamin/mineral interactions, duplicate therapies, and nutrient
+      depletions. This is a starter screen, not a complete check &mdash; your pharmacist can run a
+      full one. Never stop a medicine without talking to your doctor.</div>
+  </section>
+
+  <section class="card">
+    <h2>Your records</h2>
+
+    <div class="toolbar">
+      <button class="chip active" data-filter="all">All <span class="count" id="cAll"></span></button>
+      <button class="chip" data-filter="medicine">Medicines <span class="count" id="cMed"></span></button>
+      <button class="chip" data-filter="supplement">Supplements <span class="count" id="cSup"></span></button>
+      <button class="chip" data-filter="review">Needs review <span class="count" id="cRev"></span></button>
+      <div class="spacer"></div>
+      <a href="/api/export?format=pdf" download><button class="btn mini">&#128424;&#65039; PDF for your doctor</button></a>
+      <a href="/api/export?format=csv" download><button class="btn ghost">CSV</button></a>
+      <a href="/api/export?format=json" download><button class="btn ghost">JSON</button></a>
+    </div>
+
+    <div id="list"></div>
+    <div class="empty" id="empty" hidden>
+      <span class="big">&#128203;</span>
+      Nothing here yet.<br />Add your first document on the left — a photo of a pill bottle works great.
+    </div>
+  </section>
+
+  </div>
+</main>
+
+<footer>
+  All data stays on this computer. This tool organizes your records — it is not medical advice.
+  Bring anything it flags to your doctor.
+</footer>
 
 <script>
-const uploadBtn = document.getElementById('uploadBtn');
-const statusEl = document.getElementById('status');
-const resultsBody = document.getElementById('resultsBody');
+let records = [];
+let kind = 'medicine';
+let filter = 'all';
 
-function confClass(v) {
-  if (v >= 0.8) return 'conf-high';
-  if (v >= 0.6) return 'conf-med';
-  return 'conf-low';
-}
+const $ = (id) => document.getElementById(id);
 
-function renderRecords(records) {
-  for (const r of records) {
-    const tr = document.createElement('tr');
-    const notes = (r.extracted.ambiguities || []).join('; ');
-    tr.innerHTML = `
-      <td>${r.extracted.name_as_written}</td>
-      <td>${r.normalization.canonical_name || '<em>unnormalized</em>'} ${r.normalization.rxcui ? '(RxCUI ' + r.normalization.rxcui + ')' : ''}</td>
-      <td>${r.extracted.dosage || ''} ${r.extracted.frequency || ''}</td>
-      <td class="${confClass(r.overall_confidence)}">${(r.overall_confidence * 100).toFixed(0)}%
-        ${r.needs_review ? '<span class="badge">needs review</span>' : ''}</td>
-      <td>${notes}</td>
-    `;
-    resultsBody.prepend(tr);
+// --- health check / setup banner ---
+fetch('/api/health').then(r => r.json()).then(h => {
+  if (h.anthropic_key_configured) {
+    $('healthDot').classList.add('ok');
+    $('healthText').textContent = 'Ready';
+  } else {
+    $('healthDot').classList.add('warn');
+    $('healthText').textContent = 'Setup needed';
+    $('setupBanner').classList.add('show');
+  }
+}).catch(() => { $('healthText').textContent = 'Offline'; });
+
+// --- kind toggle ---
+$('kindSeg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  kind = btn.dataset.kind;
+  document.querySelectorAll('#kindSeg button').forEach(b => b.classList.toggle('active', b === btn));
+});
+
+// --- drop zone ---
+const drop = $('drop'), fileInput = $('file');
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; showPicked(); }
+});
+fileInput.addEventListener('change', showPicked);
+function showPicked() {
+  if (fileInput.files.length) {
+    $('dropText').innerHTML = '<span class="picked">' + fileInput.files[0].name + '</span><br /><small>Click to change</small>';
   }
 }
 
-async function loadExisting() {
-  const res = await fetch('/api/records');
-  const data = await res.json();
-  renderRecords(data.records.reverse());
-}
+// --- upload ---
+$('uploadBtn').addEventListener('click', async () => {
+  const status = $('status');
+  if (!fileInput.files.length) { status.textContent = 'Choose a file first.'; return; }
+  $('uploadBtn').disabled = true;
+  status.className = 'status';
+  status.innerHTML = '<span class="spin"></span>Reading your document&hellip; this takes a few seconds.';
 
-uploadBtn.addEventListener('click', async () => {
-  const fileInput = document.getElementById('file');
-  const kind = document.getElementById('kind').value;
-  const sourceType = document.getElementById('sourceType').value;
-  if (!fileInput.files.length) {
-    statusEl.textContent = 'Choose a file first.';
-    return;
-  }
-  uploadBtn.disabled = true;
-  statusEl.textContent = 'Uploading and extracting... this can take a few seconds.';
-
-  const formData = new FormData();
-  formData.append('file', fileInput.files[0]);
-
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
   try {
-    const res = await fetch(`/api/ingest/${kind}?source_type=${sourceType}`, {
-      method: 'POST',
-      body: formData,
-    });
+    const res = await fetch('/api/ingest/' + kind + '?source_type=' + $('sourceType').value, { method: 'POST', body: fd });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || res.statusText);
+      let msg = res.statusText;
+      try { msg = (await res.json()).detail || msg; } catch {}
+      throw new Error(msg);
     }
     const data = await res.json();
-    renderRecords(data.records);
-    statusEl.textContent = `Done — extracted ${data.records.length} record(s).`;
+    records = data.records.concat(records);
+    render();
+    loadFindings();
+    const n = data.records.length;
+    status.textContent = n === 0
+      ? 'Done — no ' + kind + 's found in that document.'
+      : 'Done — added ' + n + ' record' + (n > 1 ? 's' : '') + '.';
+    fileInput.value = '';
+    $('dropText').innerHTML = 'Drag a file here, or click to choose<br /><small>PDF, JPG, PNG or WebP</small>';
   } catch (e) {
-    statusEl.textContent = 'Error: ' + e.message;
+    status.className = 'status err';
+    status.textContent = 'Something went wrong: ' + e.message;
   } finally {
-    uploadBtn.disabled = false;
+    $('uploadBtn').disabled = false;
   }
 });
 
-loadExisting();
+// --- filters ---
+document.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => {
+  filter = chip.dataset.filter;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === chip));
+  render();
+}));
+
+// --- rendering ---
+function confBadge(v, needsReview) {
+  const pct = Math.round(v * 100) + '%';
+  if (needsReview) return '<span class="badge b-bad">' + pct + ' &middot; check this</span>';
+  if (v >= 0.8) return '<span class="badge b-good">' + pct + ' confident</span>';
+  return '<span class="badge b-warn">' + pct + '</span>';
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function render() {
+  const list = $('list');
+  const shown = records.filter(r =>
+    filter === 'all' ? true :
+    filter === 'review' ? r.needs_review :
+    r.kind === filter);
+
+  $('cAll').textContent = records.length || '';
+  $('cMed').textContent = records.filter(r => r.kind === 'medicine').length || '';
+  $('cSup').textContent = records.filter(r => r.kind === 'supplement').length || '';
+  $('cRev').textContent = records.filter(r => r.needs_review).length || '';
+
+  $('empty').hidden = shown.length > 0;
+  list.innerHTML = shown.map(r => {
+    const name = r.normalization.canonical_name || r.extracted.name_as_written;
+    const raw = r.normalization.canonical_name &&
+      r.normalization.canonical_name.toLowerCase() !== r.extracted.name_as_written.toLowerCase()
+      ? 'written as &ldquo;' + esc(r.extracted.name_as_written) + '&rdquo;' : '';
+    const meta = [r.extracted.dosage, r.extracted.frequency, r.extracted.prescriber_or_source]
+      .filter(Boolean).map(esc).join(' &middot; ');
+    const src = [r.source_filename, r.extracted.date_documented].filter(Boolean).map(esc).join(' &middot; ');
+    const notes = (r.extracted.ambiguities || []).map(esc).join('; ');
+    return '<div class="rec">' +
+      '<div class="rec-top">' +
+        '<span class="rec-name">' + esc(name) + '</span>' +
+        (raw ? '<span class="rec-raw">' + raw + '</span>' : '') +
+        '<span class="badges"><span class="badge b-kind">' + esc(r.kind) + '</span>' +
+        confBadge(r.overall_confidence, r.needs_review) + '</span>' +
+      '</div>' +
+      (meta ? '<div class="rec-meta">' + meta + '</div>' : '') +
+      (src ? '<div class="rec-meta">' + src + '</div>' : '') +
+      (notes ? '<div class="rec-notes">&#9888;&#65039; ' + notes + '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+// --- warnings & recommendations ---
+const SEV_LABEL = {
+  major: '<span class="badge b-bad">MAJOR</span>',
+  moderate: '<span class="badge b-warn">MODERATE</span>',
+  info: '<span class="badge b-kind">FYI</span>',
+};
+
+async function loadFindings() {
+  try {
+    const res = await fetch('/api/findings');
+    const data = await res.json();
+    renderFindings(data.findings || []);
+  } catch {}
+}
+
+function renderFindings(findings) {
+  const list = $('warnList');
+  const majors = findings.filter(f => f.severity === 'major').length;
+
+  $('warnEmpty').hidden = records.length > 0 || findings.length > 0;
+  $('warnOk').hidden = !(records.length > 0 && findings.length === 0);
+  $('warnCount').hidden = findings.length === 0;
+  $('warnCount').textContent = majors > 0
+    ? findings.length + ' found · ' + majors + ' major'
+    : findings.length + ' found';
+
+  list.innerHTML = findings.map(f => {
+    let caveat = f.evidence_note + ' Based on entries read with ≥' +
+      Math.round(f.reading_confidence * 100) + '% confidence.';
+    if (f.needs_record_review) {
+      caveat += ' ⚠️ One of these entries is itself marked "check this" — verify it first.';
+    }
+    return '<div class="warn-item sev-' + esc(f.severity) + '">' +
+      '<div class="warn-head">' + SEV_LABEL[f.severity] +
+        '<span class="warn-title">' + esc(f.title) + '</span></div>' +
+      '<div class="warn-involves">Involves: <strong>' + f.involved.map(esc).join('</strong> + <strong>') + '</strong></div>' +
+      '<div class="warn-body">' + esc(f.explanation) + '</div>' +
+      '<div class="warn-rec">&#128161; ' + esc(f.recommendation) + '</div>' +
+      '<div class="warn-caveat">' + esc(caveat) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); });
 </script>
 </body>
 </html>

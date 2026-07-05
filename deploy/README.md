@@ -24,8 +24,8 @@ matching the hosting recommendation in `docs/ARCHITECTURE.md` section 7:
 ## Setup
 
 ```bash
-cp backend/.env.example backend/.env
-# edit backend/.env and set ANTHROPIC_API_KEY
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > backend/.env
+# (all other settings have sensible defaults - see backend/app/config.py)
 
 docker compose build
 docker compose up -d

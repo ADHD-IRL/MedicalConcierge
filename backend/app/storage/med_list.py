@@ -227,6 +227,14 @@ class MedListStore:
             self._ensure_original_baseline()
         return created
 
+    def clear_all(self) -> None:
+        """Deletes the entire list, its history, and all baselines. Only
+        called by the reset flow, after the archive PDF has been generated."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM list_items")
+            conn.execute("DELETE FROM list_history")
+            conn.execute("DELETE FROM baselines")
+
     # --- baselines -----------------------------------------------------------
 
     def create_baseline(self, name: str) -> Baseline:

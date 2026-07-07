@@ -54,6 +54,12 @@ class RecordStore:
                     ),
                 )
 
+    def clear_all(self) -> None:
+        """Deletes every stored record. Only called by the reset flow, after
+        the archive PDF has been generated."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM records")
+
     def list_all(self, kind: str | None = None) -> list[NormalizedRecord]:
         query = "SELECT payload FROM records"
         params: tuple = ()

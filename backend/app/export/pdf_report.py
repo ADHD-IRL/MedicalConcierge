@@ -12,7 +12,16 @@ from datetime import date
 
 import fitz
 
-from app.schemas import Finding, FindingSeverity, NormalizedRecord, RecordKind
+from app.schemas import (
+    Baseline,
+    Finding,
+    FindingSeverity,
+    ItemStatus,
+    ListHistoryEvent,
+    MedListItem,
+    NormalizedRecord,
+    RecordKind,
+)
 
 _PAGE_W, _PAGE_H = fitz.paper_size("letter")
 _MARGIN = 54.0
@@ -250,6 +259,114 @@ def build_pdf(records: list[NormalizedRecord], findings: list[Finding] | None = 
             _record_block(w, record)
     else:
         w.text("No supplements recorded.", size=9.5, color=_GRAY, gap=6)
+
+    w.finish_footers()
+    pdf_bytes = w.doc.tobytes()
+    w.doc.close()
+    return pdf_bytes
+
+
+def _item_block(w: _Writer, item: MedListItem) -> None:
+    title = item.canonical_name or item.name
+    if item.status == ItemStatus.stopped:
+        title += "   [STOPPED]"
+    w.text(title, size=10.5, bold=True,
+           color=_GRAY if item.status == ItemStatus.stopped else _BLACK, gap=1)
+    details = " / ".join(p for p in (item.dosage, item.frequency) if p)
+    if details:
+        w.text(details, size=9.5, gap=1)
+    bits = [item.kind.value]
+    if item.canonical_name and item.name.lower() != item.canonical_name.lower():
+        bits.append(f'entered as "{item.name}"')
+    if item.ingredient_name:
+        bits.append(f"ingredient: {item.ingredient_name}")
+    if item.rxcui:
+        bits.append(f"RxCUI {item.rxcui}")
+    w.text(" - ".join(bits), size=8.0, color=_GRAY, indent=2, gap=1)
+    if item.notes:
+        w.text(f"Notes: {item.notes}", size=8.5, color=_GRAY, indent=2, gap=1)
+    w.space(6)
+
+
+def build_archive_pdf(
+    records: list[NormalizedRecord],
+    items: list[MedListItem],
+    baselines: list[Baseline],
+    history: list[ListHistoryEvent],
+    findings: list[Finding],
+) -> bytes:
+    """The everything-before-reset archive: the complete medication list
+    (including stopped items), current screening findings, every baseline,
+    the full change history, and every raw ingested record. Generated and
+    returned BEFORE any data is deleted."""
+
+    w = _Writer()
+
+    active = sum(1 for i in items if i.status == ItemStatus.active)
+    w.text("Medical Concierge - Full Archive", size=16, bold=True, gap=2)
+    w.text(
+        f"Generated {date.today().isoformat()} before a data reset  -  "
+        f"{active} active and {len(items) - active} stopped list item(s), "
+        f"{len(baselines)} baseline(s), {len(history)} history event(s), "
+        f"{len(records)} source record(s)",
+        size=9.5, color=_GRAY, gap=2,
+    )
+    w.text(
+        "This document is a complete snapshot of everything stored in the app "
+        "at the moment the user chose Start Over. Keep it - the data it "
+        "describes was erased immediately after this file was created.",
+        size=8.5, color=_GRAY, gap=4,
+    )
+    w.rule()
+
+    w.text("POTENTIAL INTERACTIONS AT TIME OF RESET", size=11.5, bold=True, gap=6)
+    if findings:
+        for finding in findings:
+            _finding_block(w, finding)
+    else:
+        w.text("No findings from the built-in screening list.", size=9.5, color=_GRAY, gap=6)
+
+    w.rule()
+    w.text("MEDICATION & SUPPLEMENT LIST (including stopped)", size=11.5, bold=True, gap=6)
+    if items:
+        for item in items:
+            _item_block(w, item)
+    else:
+        w.text("The list was empty.", size=9.5, color=_GRAY, gap=6)
+
+    w.rule()
+    w.text("BASELINES", size=11.5, bold=True, gap=6)
+    if baselines:
+        for b in baselines:
+            w.text(
+                f"{b.name}  -  {b.created_at.date().isoformat()}  -  {len(b.items)} item(s)",
+                size=9.5, gap=2,
+            )
+    else:
+        w.text("No baselines were set.", size=9.5, color=_GRAY, gap=6)
+    w.space(4)
+
+    w.rule()
+    w.text("COMPLETE CHANGE HISTORY", size=11.5, bold=True, gap=6)
+    if history:
+        for event in history:
+            name = event.item_snapshot.canonical_name or event.item_snapshot.name
+            w.text(
+                f"{event.timestamp.strftime('%Y-%m-%d %H:%M')}  {name}  -  "
+                f"{event.action}: {event.detail}",
+                size=8.5, color=_GRAY, gap=1,
+            )
+    else:
+        w.text("No history events.", size=9.5, color=_GRAY, gap=6)
+    w.space(4)
+
+    w.rule()
+    w.text("RAW SOURCE RECORDS (as read from documents)", size=11.5, bold=True, gap=6)
+    if records:
+        for record in records:
+            _record_block(w, record)
+    else:
+        w.text("No source records.", size=9.5, color=_GRAY, gap=6)
 
     w.finish_footers()
     pdf_bytes = w.doc.tobytes()

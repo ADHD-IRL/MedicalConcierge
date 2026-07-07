@@ -279,6 +279,7 @@
   </div>
   <div class="spacer"></div>
   <div class="health"><span class="dot" id="healthDot"></span><span id="healthText">Checking&hellip;</span></div>
+  <button class="btn tiny danger" id="resetBtn" title="Download a PDF archive of everything, then erase all data">Start over&hellip;</button>
 </header>
 
 <div class="banner" id="setupBanner">
@@ -716,6 +717,46 @@ $('compareBtn').addEventListener('click', async () => {
 });
 
 $('showStopped').addEventListener('change', renderMedList);
+
+// --- start over (archive PDF, then clear all) ---
+$('resetBtn').addEventListener('click', async () => {
+  if (!confirm(
+    'Start over?\n\n' +
+    'A PDF archive of EVERYTHING (your medication list, history, baselines, ' +
+    'warnings, and all records) will be downloaded first.\n\n' +
+    'Then ALL data in this app is permanently erased. This cannot be undone.'
+  )) return;
+  if (!confirm('Are you absolutely sure? The archive PDF is your only copy after this.')) return;
+
+  $('resetBtn').disabled = true;
+  try {
+    const res = await fetch('/api/reset', { method: 'POST' });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const cd = res.headers.get('Content-Disposition') || '';
+    a.download = (cd.match(/filename=(\S+)/) || [])[1] || 'medconcierge_archive.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+
+    // reset local state to the fresh-start view
+    records = []; mlItems = []; mlBaselines = []; editingId = null; historyOpenId = null;
+    $('diffPanel').hidden = true;
+    render(); renderMedList(); renderFindings([]);
+    $('mlStatus').textContent = 'Everything was archived to the downloaded PDF and erased. Fresh start!';
+  } catch (e) {
+    alert('Nothing was deleted - the archive could not be created: ' + e.message);
+  } finally {
+    $('resetBtn').disabled = false;
+  }
+});
 
 fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); loadMedList(); });
 </script>

@@ -383,6 +383,7 @@ Two integration rules keep it coherent:
 | `POST /api/baselines` | snapshot the current list under a name |
 | `GET /api/list/compare/{baseline_id}` | added / stopped / changed since that baseline |
 | `GET /api/export?format=json\|csv\|pdf` | full export; JSON includes the list, baselines, and history; PDF is the clinician summary |
+| `POST /api/reset` | start over: builds a full-archive PDF (list incl. stopped items, baselines, complete history, findings, raw records), wipes both stores only after the bytes exist, and returns the PDF as the response — a generation failure aborts with nothing deleted |
 | `GET /` | serves `static/index.html` |
 
 There is no auth: the server binds to `127.0.0.1` in desktop mode, and in

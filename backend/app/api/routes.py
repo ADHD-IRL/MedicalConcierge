@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.common import make_rxnorm_client, process_document
 from app.config import get_settings
-from app.export.pdf_report import build_pdf
+from app.export.pdf_report import build_archive_pdf, build_pdf
 from app.interactions.engine import evaluate
 from app.ingestion.file_loader import UnsupportedFileType
 from app.ingestion.multimodal_extractor import ExtractionTruncated
@@ -210,6 +210,34 @@ def compare_baseline(baseline_id: str):
     except KeyError:
         raise HTTPException(status_code=404, detail="No such baseline.")
     return diff.model_dump(mode="json")
+
+
+@router.post("/reset")
+def reset_all():
+    """Start over: builds the full-archive PDF from EVERYTHING stored, and
+    only once those bytes exist wipes both stores. The PDF is the response,
+    so the user cannot end up with cleared data and no archive - a failure
+    anywhere before the wipe aborts with nothing deleted."""
+    store = get_store()
+    list_store = get_list_store()
+
+    pdf_bytes = build_archive_pdf(
+        records=store.list_all(),
+        items=list_store.list_items(),
+        baselines=list_store.list_baselines(),
+        history=list_store.history(),
+        findings=evaluate(_screening_records()),
+    )
+
+    store.clear_all()
+    list_store.clear_all()
+
+    filename = f"medconcierge_archive_{date.today().isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/export")

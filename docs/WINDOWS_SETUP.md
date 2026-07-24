@@ -46,7 +46,11 @@ Python is the free software this app runs on.
 1. Open the extracted folder and **double-click `Start-MedicalConcierge.bat`**.
 2. The first run takes about a minute — it sets itself up, then asks you to
    paste your API key. Right-click to paste in that window, then press Enter.
-3. Your browser opens to the app automatically. That's it.
+3. Your browser opens to the app automatically. A welcome screen explains
+   what the app does, where its information comes from, and how to get the
+   best results — read it once, click **Get started**, and it won't show
+   again. (You can reopen it any time with **How this works** at the top of
+   the page.) That's it.
 
 A black window stays open in the background — that **is** the app running.
 Leave it open while you use Medical Concierge; close it when you're done.

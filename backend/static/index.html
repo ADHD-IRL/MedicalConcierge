@@ -267,9 +267,164 @@
     max-width: 1100px; margin: 0 auto 2rem; padding: 0 1.25rem;
     font-size: .75rem; color: var(--text-dim); text-align: center;
   }
+
+  /* --- welcome / splash --- */
+  .splash-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(16, 21, 28, .55); backdrop-filter: blur(3px);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 2rem 1rem; overflow-y: auto;
+  }
+  .splash-overlay[hidden] { display: none; }
+  .splash-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+    max-width: 720px; width: 100%; padding: 2rem 2.1rem 1.6rem;
+    outline: none;
+  }
+  @media (max-width: 700px) { .splash-panel { padding: 1.4rem 1.2rem 1.2rem; } }
+  .splash-hero { display: flex; gap: .9rem; align-items: center; margin-bottom: .4rem; }
+  .splash-hero .logo { width: 46px; height: 46px; font-size: 1.5rem; border-radius: 12px; }
+  .splash-hero h2 { margin: 0; font-size: 1.35rem; font-weight: 680; letter-spacing: -.2px; }
+  .splash-lede {
+    font-size: .95rem; color: var(--text-dim); margin: .1rem 0 1.4rem;
+  }
+  .splash-panel h3 {
+    font-size: .82rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--accent);
+    margin: 1.5rem 0 .6rem; padding-top: .9rem; border-top: 1px solid var(--border);
+  }
+  .splash-panel h3:first-of-type { border-top: none; padding-top: 0; }
+  .splash-panel p { font-size: .88rem; margin: .45rem 0; }
+  .splash-steps { list-style: none; counter-reset: s; padding: 0; margin: .5rem 0; }
+  .splash-steps li {
+    counter-increment: s; position: relative;
+    padding-left: 2.1rem; margin-bottom: .7rem; font-size: .88rem;
+  }
+  .splash-steps li::before {
+    content: counter(s); position: absolute; left: 0; top: -1px;
+    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: .78rem; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  .splash-source { margin-bottom: .75rem; font-size: .88rem; }
+  .splash-source strong { display: block; }
+  .splash-source span { color: var(--text-dim); }
+  .splash-tips { padding-left: 1.1rem; margin: .5rem 0; }
+  .splash-tips li { font-size: .88rem; margin-bottom: .45rem; }
+  .splash-callout {
+    background: var(--warn-soft); color: var(--warn);
+    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+    border-radius: 10px; padding: .75rem .9rem; font-size: .85rem; margin-top: .5rem;
+  }
+  .splash-privacy {
+    background: var(--good-soft); color: var(--good);
+    border-radius: 10px; padding: .75rem .9rem; font-size: .85rem;
+  }
+  .splash-actions {
+    display: flex; align-items: center; gap: .9rem; flex-wrap: wrap;
+    margin-top: 1.6rem; padding-top: 1.1rem; border-top: 1px solid var(--border);
+  }
+  .splash-actions .btn { width: auto; padding: .6rem 1.6rem; }
+  .splash-actions small { color: var(--text-dim); font-size: .76rem; }
 </style>
 </head>
 <body>
+
+<div class="splash-overlay" id="splash" hidden role="dialog" aria-modal="true" aria-labelledby="splashTitle">
+  <div class="splash-panel" id="splashPanel" tabindex="-1">
+
+    <div class="splash-hero">
+      <div class="logo">&#9877;</div>
+      <h2 id="splashTitle">Welcome to Medical Concierge</h2>
+    </div>
+    <p class="splash-lede">
+      When several doctors each see only part of the picture, things get missed &mdash;
+      a duplicate prescription, an interaction nobody caught, a supplement no one was told about.
+      This app is the one place that holds <em>all</em> of it, so you can see the whole picture
+      and bring it to your next appointment.
+    </p>
+
+    <h3>How it works</h3>
+    <ol class="splash-steps">
+      <li><strong>Add your documents.</strong> Visit notes, pharmacy printouts, medication
+        charts, photos of pill and supplement bottles, even handwritten notes. PDFs and
+        phone photos both work &mdash; you don't need to sort or label them.</li>
+      <li><strong>Your medication list builds itself.</strong> Medicines and supplements are
+        read out of each document and merged into one list. The same drug seen in three
+        documents becomes one entry, not three.</li>
+      <li><strong>Everything is checked against everything else.</strong> Interactions,
+        duplicate prescriptions from different doctors, and nutrients your medicines may
+        deplete &mdash; each with a plain-language explanation.</li>
+      <li><strong>Take it to your doctor.</strong> One button produces a clean PDF summary
+        with the warnings up front, ready to print or hand over.</li>
+    </ol>
+
+    <h3>Where the information comes from</h3>
+    <div class="splash-source">
+      <strong>Your own documents</strong>
+      <span>Read by Claude's vision AI. Every entry carries a confidence score, and anything
+      it wasn't sure about is flagged <em>&ldquo;check this&rdquo;</em> with the exact
+      uncertainty spelled out &mdash; for example &ldquo;dose digit unclear, could be 10 or 40.&rdquo;</span>
+    </div>
+    <div class="splash-source">
+      <strong>RxNorm &mdash; U.S. National Library of Medicine</strong>
+      <span>The official drug vocabulary. It's what turns &ldquo;Tylenol,&rdquo; &ldquo;APAP,&rdquo;
+      and a scrawled abbreviation into one correctly identified ingredient, so brand and generic
+      names of the same drug never show up as two different medicines.</span>
+    </div>
+    <div class="splash-source">
+      <strong>A built-in interaction reference list</strong>
+      <span>Well-documented drug&ndash;drug, drug&ndash;supplement, vitamin/mineral,
+      duplicate-therapy, and nutrient-depletion facts &mdash; the kind printed on a pharmacy
+      handout.</span>
+    </div>
+    <div class="splash-callout">
+      <strong>This is a starter screen, not a complete interaction check.</strong>
+      It catches well-known problems worth asking about; it does not replace the full
+      screening your pharmacist can run.
+    </div>
+
+    <h3>Getting the best results</h3>
+    <ul class="splash-tips">
+      <li><strong>Add everything you have.</strong> The app can only reason about what it's
+        been shown &mdash; more documents means fewer blind spots.</li>
+      <li><strong>Review the &ldquo;check this&rdquo; items first.</strong> Those are the
+        readings the app is least sure of, and a quick correction there makes every warning
+        downstream more reliable.</li>
+      <li><strong>Keep the list honest.</strong> Fix doses and press <em>Stop</em> on anything
+        you no longer take. Your edits always win &mdash; a new document can never silently
+        overwrite what you've confirmed.</li>
+      <li><strong>Set a baseline after each visit.</strong> Then <em>Compare to baseline</em>
+        shows exactly what changed since &mdash; ideal to review before the next appointment.</li>
+      <li><strong>Bring the PDF with you.</strong> It's designed for a clinician skimming it
+        in a few minutes, with the warnings first.</li>
+    </ul>
+
+    <h3>Your privacy</h3>
+    <p class="splash-privacy">
+      Your records live in a single file on this computer &mdash; no account, no cloud, no
+      medical database holding your history. Only two things ever leave this machine:
+      document images go to Anthropic's API to be read, and drug <em>names only</em> go to
+      RxNorm to be identified. <em>Start over</em> saves a complete PDF archive before
+      erasing anything.
+    </p>
+
+    <h3>One important thing</h3>
+    <p>
+      This is not a medical device and nothing here is medical advice. It organizes your
+      information and flags things worth asking about &mdash; <strong>never start, stop, or
+      change a medicine based on what you see here.</strong> Bring it to your doctor or
+      pharmacist and let them decide.
+    </p>
+
+    <div class="splash-actions">
+      <button class="btn" id="splashClose">Get started</button>
+      <small>You can reopen this any time with <strong>How this works</strong> at the top of the page.</small>
+    </div>
+  </div>
+</div>
 
 <header>
   <div class="logo">&#9877;</div>
@@ -279,6 +434,7 @@
   </div>
   <div class="spacer"></div>
   <div class="health"><span class="dot" id="healthDot"></span><span id="healthText">Checking&hellip;</span></div>
+  <button class="btn tiny" id="helpBtn" title="What this app is, where its information comes from, and how to use it">How this works</button>
   <button class="btn tiny danger" id="resetBtn" title="Download a PDF archive of everything, then erase all data">Start over&hellip;</button>
 </header>
 
@@ -392,6 +548,33 @@ let records = [];
 let filter = 'all';
 
 const $ = (id) => document.getElementById(id);
+
+// --- welcome / splash ---
+const SPLASH_KEY = 'mc_splash_seen';
+
+function openSplash() {
+  $('splash').hidden = false;
+  $('splashPanel').focus();
+}
+
+function closeSplash() {
+  $('splash').hidden = true;
+  try { localStorage.setItem(SPLASH_KEY, '1'); } catch {}
+  $('helpBtn').focus();
+}
+
+$('splashClose').addEventListener('click', closeSplash);
+$('helpBtn').addEventListener('click', openSplash);
+$('splash').addEventListener('click', (e) => { if (e.target === $('splash')) closeSplash(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('splash').hidden) closeSplash();
+});
+
+// Show automatically on first run. A storage failure (private mode, locked
+// down browser) just means the welcome shows again next time - harmless.
+let splashSeen = false;
+try { splashSeen = localStorage.getItem(SPLASH_KEY) === '1'; } catch {}
+if (!splashSeen) openSplash();
 
 // --- health check / setup banner ---
 fetch('/api/health').then(r => r.json()).then(h => {

@@ -94,7 +94,7 @@ MedicalConcierge/
 └── backend/
     ├── Dockerfile               # container image for the app (§9.2)
     ├── requirements.txt         # runtime deps; -dev adds pytest
-    ├── static/index.html        # the entire frontend
+    ├── static/index.html        # the entire frontend (incl. welcome splash)
     ├── app/
     │   ├── main.py              # FastAPI wiring: /api router + static mount
     │   ├── config.py            # Settings (pydantic-settings, reads .env)
@@ -322,6 +322,20 @@ Findings sort most-severe first, then weakest-reading-confidence first
 within a band, so the user verifies shaky records early. Every rule in the
 knowledge base is a pharmacy-handout-level documented fact, and the UI/PDF
 label the whole feature as "a starter screen, not a complete check."
+
+### 5.7b The welcome splash
+
+`static/index.html` opens with a first-run overlay explaining what the app
+is, the four sources its information comes from (the user's documents via
+Claude vision, RxNorm, the built-in interaction list, and nothing else),
+how to get accurate results, the exact privacy boundary, and the
+not-medical-advice limits. Dismissal is remembered in `localStorage`
+(`mc_splash_seen`) — the app's only localStorage use, and appropriate since
+it's a UI preference rather than medical data; a storage failure just means
+the welcome shows again, which is harmless. The **How this works** header
+button reopens it without clearing the flag. Escape and backdrop clicks
+close it, and focus moves into the panel on open and back to the button on
+close.
 
 ### 5.8 Render
 

@@ -381,6 +381,94 @@ Two integration rules keep it coherent:
    its warnings; curated items carry full confidence since the user has
    confirmed them.
 
+## 5.9 The SME panel (`app/panel/`)
+
+Everything up to here is deterministic: extraction, normalization, and a
+screening engine that matches terms against a fixed table. The panel is the
+other half — an adversarial multi-agent review that reasons about the regimen
+instead of looking it up. It **augments** the rule screen rather than
+replacing it, and the UI keeps them visibly separate, because a reader needs
+to know which findings are a hard-coded pharmacy fact and which are AI
+deliberation.
+
+The design is a port of the Panel Room / MHDebate protocol, with a roster
+tailored to medication management across uncoordinated prescribers.
+
+### The registry (`backend/data/panel_registry.json`)
+
+29 subject-matter agents as data, not code, so the panel's composition is
+reviewable and changeable without touching the engine. Each carries a
+`stance`, `system_prompt`, `privileged_evidence`, `typically_challenges`
+(the adversarial graph), `concedes_when` (its falsifiability condition),
+`bias_watch` (its known failure mode, shown to the reader rather than
+hidden), and `required_round_output`.
+
+Eight panels: Pharmacy & Pharmacology, Organ-System Risk, Prescribing
+Context, Supplements & Nutrition, Evidence & Adversarial, Data Integrity,
+Practice & Access, and Governance.
+
+Three seats carry the structural load:
+
+- **`red_alert_fatigue`** argues most flagged interactions are clinically
+  inert. Every interaction tool ever built has failed in the same direction,
+  and a reader warned about everything learns to ignore warnings.
+- **`red_undertreatment`** counterweights the whole panel, which is
+  structurally biased toward finding fault with what is present rather than
+  with what is absent.
+- **`data_provenance`** is specific to this app: it reasons about the *data*,
+  not the pharmacology, and asks whether the regimen on the page is the one
+  the person actually takes — reading confidence, missing doses, stale
+  entries.
+
+The `house_rules` array holds the binding commitments every agent inherits.
+The load-bearing one: *name specific drugs and doses, but never tell the
+reader to start, stop, or change anything.* MHDebate forbids naming
+medications at all; that line had to be redrawn here, since this app is
+entirely about medications. The rule became non-direction rather than
+non-specificity.
+
+### The eight rounds (`app/panel/engine.py`)
+
+| Round | What happens |
+|---|---|
+| 1 | Intake framing + seating. An urgency screen runs first, locally. |
+| 2 | Independent review — every seated agent in parallel, blind to each other |
+| 3 | Cross-examination along the registry's `typically_challenges` edges |
+| 4 | Significance pruning — evidence grading; drop what is inert in practice |
+| 5 | Lived-experience review — adherence reality, does this help or frighten |
+| 6 | Feasibility + ethics gate — tier by cost; check for drift into directing |
+| 7 | Synthesis and dissent |
+| 8 | Safety veto — rewrite anything that reads as an instruction |
+
+Round 2 is parallel **by design**. Independence is the only structural
+defence against every seat agreeing because they share one underlying model,
+and the synthesis is required to say so to the reader in plain words.
+
+Round 7's schema requires a non-empty `dissent` list. Disagreement that gets
+smoothed over costs the reader real information, so the output keeps it with
+equal prominence rather than collapsing to a tidy consensus.
+
+Every boundary where a model supplies an agent id is normalised: invented ids
+are dropped at seating, self-pairs and unknown speakers are dropped at
+cross-examination, and attributions to agents that never spoke are stripped
+from the synthesis, so the UI cannot over-claim who backed a position.
+
+### Safety (`app/panel/safety.py`)
+
+A deterministic, local screen that runs before any API call and grades rather
+than halts: `urgent` (emergency language — stops the panel and routes to
+care), `concern`, `sensitive`, `clear`. It reads the free-text note only. A
+dangerous *combination* is a finding for the panel to reason about, not a
+reason to refuse to run.
+
+### Streaming
+
+`POST /api/panel` streams server-sent events as each round and agent turn
+starts and finishes — an eight-round run takes a while, and watching the room
+fill in is most of what makes it legible. The completed review is persisted
+(one row, latest only) so it survives a reload, since re-running costs real
+money.
+
 ## 6. The API surface (`app/api/routes.py`)
 
 | Endpoint | What it does |
@@ -397,6 +485,10 @@ Two integration rules keep it coherent:
 | `POST /api/baselines` | snapshot the current list under a name |
 | `GET /api/list/compare/{baseline_id}` | added / stopped / changed since that baseline |
 | `GET /api/export?format=json\|csv\|pdf` | full export; JSON includes the list, baselines, and history; PDF is the clinician summary |
+| `GET /api/panel/roster` | the 29 experts, their biases and adversarial edges — the panel is inspectable, not a black box |
+| `POST /api/panel` | runs the eight-round review over the current list, streaming SSE progress; last event carries the review |
+| `GET /api/panel/latest` | the most recent completed review, so it survives a reload |
+| `GET /api/panel/pdf` | the panel's questions and unresolved disagreements, to hand over at an appointment |
 | `POST /api/reset` | start over: builds a full-archive PDF (list incl. stopped items, baselines, complete history, findings, raw records), wipes both stores only after the bytes exist, and returns the PDF as the response — a generation failure aborts with nothing deleted |
 | `GET /` | serves `static/index.html` |
 
@@ -433,6 +525,11 @@ one `ANTHROPIC_API_KEY=...` line is enough; everything else has defaults):
 |---|---|---|
 | `ANTHROPIC_API_KEY` | *(empty)* | the one required secret; empty → UI shows setup banner |
 | `EXTRACTION_MODEL` | `claude-sonnet-5` | vision model for extraction |
+| `ENABLE_PANEL` | `true` | turns the SME panel off entirely |
+| `PANEL_MODEL` | `claude-sonnet-5` | individual agent turns (short, many, parallel) |
+| `PANEL_SYNTHESIS_MODEL` | `claude-opus-5` | synthesis and safety veto, which reason over the whole transcript |
+| `PANEL_MAX_SEATED` | `8` | ceiling on experts seated per run — the main cost lever |
+| `PANEL_CONCURRENCY` | `6` | parallel in-flight model calls |
 | `RXNORM_BASE_URL` | `https://rxnav.nlm.nih.gov/REST` | swappable for tests/mirrors |
 | `DB_PATH` | `./medconcierge.sqlite3` | Docker sets `/data/medconcierge.sqlite3` |
 | `REVIEW_CONFIDENCE_THRESHOLD` | `0.6` | below this, records are flagged `needs_review` |

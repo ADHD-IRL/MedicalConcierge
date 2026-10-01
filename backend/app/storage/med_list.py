@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS baselines (
     created_at TEXT NOT NULL,
     payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS observations (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS panel_reviews (
     id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -241,18 +247,60 @@ class MedListStore:
             conn.execute("DELETE FROM list_history")
             conn.execute("DELETE FROM baselines")
             conn.execute("DELETE FROM panel_reviews")
+            conn.execute("DELETE FROM observations")
 
     # --- panel reviews -------------------------------------------------------
 
     def save_panel_review(self, review) -> None:
         """Keeps the most recent completed review so it survives a reload and
         can be turned into a PDF to take to an appointment. Only one is kept -
-        a review of a regimen that has since changed is misleading, not useful."""
+        a review of a regimen that has since changed is misleading, not useful.
+
+        Observations are deliberately NOT cleared here: answered ones are the
+        input that makes the next run converge rather than repeat itself."""
         with self._connect() as conn:
             conn.execute("DELETE FROM panel_reviews")
             conn.execute(
                 "INSERT INTO panel_reviews (id, created_at, payload) VALUES (?, ?, ?)",
                 (review.id, review.created_at.isoformat(), review.model_dump_json()),
+            )
+
+    # --- tracked observations ------------------------------------------------
+
+    def save_observations(self, observations) -> None:
+        if not observations:
+            return
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO observations (id, status, created_at, payload) "
+                "VALUES (?, ?, ?, ?)",
+                [(o.id, o.status.value, o.created_at.isoformat(), o.model_dump_json())
+                 for o in observations],
+            )
+
+    def list_observations(self):
+        from app.panel.schemas import TrackedObservation
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM observations ORDER BY created_at DESC"
+            ).fetchall()
+        return [TrackedObservation.model_validate(json.loads(r[0])) for r in rows]
+
+    def get_observation(self, observation_id: str):
+        from app.panel.schemas import TrackedObservation
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload FROM observations WHERE id = ?", (observation_id,)
+            ).fetchone()
+        return TrackedObservation.model_validate(json.loads(row[0])) if row else None
+
+    def update_observation(self, observation) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE observations SET status = ?, payload = ? WHERE id = ?",
+                (observation.status.value, observation.model_dump_json(), observation.id),
             )
 
     def latest_panel_review(self):

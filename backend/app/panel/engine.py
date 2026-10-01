@@ -34,11 +34,12 @@ from app.panel.schemas import (
     EvidenceGrade,
     PanelReview,
     Question,
+    Resolved,
     Seat,
     Take,
     Urgency,
 )
-from app.schemas import Finding, MedListItem, NormalizedRecord
+from app.schemas import Finding, LabResult, MedListItem, NormalizedRecord
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -486,6 +487,22 @@ _SYNTHESIS_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "resolved": {
+            "type": "array",
+            "description": "Questions a previous review left open that the answers since "
+            "have now settled. Empty when there were no prior answers, or when the answers "
+            "did not settle anything. Never invent a resolution to look like progress.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "The question that is now settled."},
+                    "settled_by": {"type": "string", "description": "The answer that did it."},
+                    "outcome": {"type": "string", "description": "What the panel now concludes, naming which expert conceded."},
+                },
+                "required": ["topic", "settled_by", "outcome"],
+                "additionalProperties": False,
+            },
+        },
         "what_this_cannot_tell": {
             **_STRINGS,
             "description": "What a panel like this genuinely cannot know about this person. Concrete, not performed modesty.",
@@ -497,7 +514,7 @@ _SYNTHESIS_SCHEMA = {
             "several independent clinicians agreeing. Ordinary words, no jargon.",
         },
     },
-    "required": ["headline", "summary", "discriminating_observations", "questions", "dissent", "what_this_cannot_tell", "correlated_model_note"],
+    "required": ["headline", "summary", "discriminating_observations", "questions", "dissent", "resolved", "what_this_cannot_tell", "correlated_model_note"],
     "additionalProperties": False,
 }
 
@@ -516,6 +533,7 @@ What matters:
 - Separate what the panel agreed on from what it could not settle, with equal prominence. Never return an empty dissent list.
 - Attribute honestly. Only list an expert as holding a position if they actually said it.
 - Every question must be sayable out loud to a pharmacist, and tiered by what it costs to ask.
+- If answers have come back since a previous review, say plainly what they settled and which expert changed their mind. A panel that converges is doing its job; one that re-litigates a question the person already went and answered is wasting them.
 - No instruction to start, stop, or change anything. Not once, not implied.
 - Plain, warm, unpatronising. Short sentences. No jargon, no filler.""",
         user=f"""{brief}
@@ -647,9 +665,17 @@ def _parse_synthesis(raw: dict, spoke: set[str]) -> dict:
 
     strings = lambda xs: [x for x in (xs or []) if isinstance(x, str) and x.strip()]  # noqa: E731
 
+    resolved = [
+        Resolved(topic=r.get("topic", ""), settled_by=r.get("settled_by", ""),
+                 outcome=r.get("outcome", ""))
+        for r in raw.get("resolved") or []
+        if r.get("topic") and r.get("outcome")
+    ]
+
     return {
         "questions": questions,
         "dissent": dissent,
+        "resolved": resolved,
         "discriminating_observations": strings(raw.get("discriminating_observations")),
         "what_this_cannot_tell": strings(raw.get("what_this_cannot_tell")),
         "correlated_model_note": (raw.get("correlated_model_note") or "").strip(),
@@ -662,9 +688,18 @@ async def run_panel(
     findings: list[Finding],
     note: str = "",
     emit: Emit | None = None,
+    labs: list[LabResult] | None = None,
+    answered: list | None = None,
 ) -> PanelReview:
-    """Run all eight rounds and return the review. ``emit`` receives progress
-    events as each round and agent turn starts and finishes."""
+    """Run all eight rounds and return the review.
+
+    ``labs`` are real measured values, which turn several agents from stating
+    assumptions into analysing numbers. ``answered`` are observations a
+    previous review asked for and the person went and found out - they are the
+    mechanism by which successive runs converge instead of repeating.
+
+    ``emit`` receives progress events as each round and agent turn starts and
+    finishes."""
 
     emit = emit or _noop
     registry = load_registry()
@@ -685,7 +720,7 @@ async def run_panel(
         return review
 
     gate = llm.semaphore()
-    brief = prompts.regimen_brief(items, records, findings, note)
+    brief = prompts.regimen_brief(items, records, findings, note, labs=labs, answered=answered)
 
     # Round 1b: framing and seating.
     framing = await _round1(brief, gate, emit)

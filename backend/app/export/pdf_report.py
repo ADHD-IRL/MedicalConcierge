@@ -17,6 +17,7 @@ from app.schemas import (
     Finding,
     FindingSeverity,
     ItemStatus,
+    LabResult,
     ListHistoryEvent,
     MedListItem,
     NormalizedRecord,
@@ -187,7 +188,11 @@ def _finding_block(w: _Writer, finding: Finding) -> None:
     w.space(7)
 
 
-def build_pdf(records: list[NormalizedRecord], findings: list[Finding] | None = None) -> bytes:
+def build_pdf(
+    records: list[NormalizedRecord],
+    findings: list[Finding] | None = None,
+    labs: list[LabResult] | None = None,
+) -> bytes:
     medicines = sorted(
         (r for r in records if r.kind == RecordKind.medicine),
         key=lambda r: (r.normalization.canonical_name or r.extracted.name_as_written).lower(),
@@ -198,6 +203,7 @@ def build_pdf(records: list[NormalizedRecord], findings: list[Finding] | None = 
     )
     flagged = sum(1 for r in records if r.needs_review)
     findings = findings or []
+    labs = labs or []
     major_count = sum(1 for f in findings if f.severity == FindingSeverity.major)
 
     w = _Writer()
@@ -260,6 +266,16 @@ def build_pdf(records: list[NormalizedRecord], findings: list[Finding] | None = 
     else:
         w.text("No supplements recorded.", size=9.5, color=_GRAY, gap=6)
 
+    if labs:
+        w.rule()
+        w.text("LAB RESULTS AS READ FROM THE PATIENT'S DOCUMENTS", size=11.5, bold=True, gap=2)
+        w.text(
+            "Transcribed from uploaded reports, not retrieved from a laboratory system. "
+            "Verify against the source report before acting on any value.",
+            size=8.0, color=_GRAY, gap=5,
+        )
+        _lab_block(w, labs)
+
     w.finish_footers()
     pdf_bytes = w.doc.tobytes()
     w.doc.close()
@@ -288,6 +304,25 @@ def _item_block(w: _Writer, item: MedListItem) -> None:
     w.space(6)
 
 
+def _lab_block(w: _Writer, labs: list[LabResult]) -> None:
+    for lab in labs:
+        line = f"{lab.name}: {lab.display}"
+        if lab.reference_range:
+            line += f"  (ref {lab.reference_range})"
+        if lab.flag.value not in ("unknown", "normal"):
+            line += f"  [{lab.flag.value.upper()}]"
+        if lab.collected_date:
+            line += f"  - {lab.collected_date}"
+        colour = _RED if lab.flag.value == "critical" else (
+            _AMBER if lab.flag.value in ("high", "low") else _BLACK
+        )
+        w.text(line, size=9.5, color=colour, gap=1)
+        if lab.needs_review:
+            w.text("Reading uncertain - confirm against the original report.",
+                   size=8, color=_AMBER, indent=2, gap=1)
+    w.space(4)
+
+
 _GRADE_LABEL = {
     "outcome": "outcome data",
     "surrogate": "lab endpoint",
@@ -303,7 +338,9 @@ _TIER_LABEL = {
 }
 
 
-def build_panel_pdf(review, items: list[MedListItem]) -> bytes:
+def build_panel_pdf(
+    review, items: list[MedListItem], labs: list[LabResult] | None = None
+) -> bytes:
     """The panel's output as something to hand over at an appointment.
 
     Questions come first, because that is what the visit is for. The
@@ -336,6 +373,20 @@ def build_panel_pdf(review, items: list[MedListItem]) -> bytes:
         w.text(review.headline, size=11.5, bold=True, gap=4)
     if review.summary:
         w.text(review.summary, size=9.5, gap=6)
+
+    if getattr(review, "resolved", None):
+        w.rule()
+        w.text("SETTLED SINCE THE LAST REVIEW", size=11.5, bold=True, gap=2)
+        w.text(
+            "The patient was asked to find these out, did, and the panel changed its "
+            "reading accordingly.",
+            size=8.5, color=_GRAY, gap=6,
+        )
+        for item in review.resolved:
+            w.text(item.topic, size=10.5, bold=True, gap=1)
+            w.text(item.outcome, size=9.5, indent=2, gap=1)
+            w.text(f"Settled by: {item.settled_by}", size=8.5, color=_GRAY, indent=2, gap=1)
+            w.space(5)
 
     if review.questions:
         w.rule()
@@ -406,6 +457,11 @@ def build_panel_pdf(review, items: list[MedListItem]) -> bytes:
             w.text(f"{d.title} - {d.reason}", size=9, color=_GRAY, gap=2)
         w.space(4)
 
+    if labs:
+        w.rule()
+        w.text("LAB VALUES THE PANEL READ", size=11.5, bold=True, gap=6)
+        _lab_block(w, labs)
+
     w.rule()
     w.text("THE REGIMEN THIS REVIEWED", size=11.5, bold=True, gap=6)
     active = [i for i in items if i.status == ItemStatus.active]
@@ -428,6 +484,7 @@ def build_archive_pdf(
     baselines: list[Baseline],
     history: list[ListHistoryEvent],
     findings: list[Finding],
+    labs: list[LabResult] | None = None,
 ) -> bytes:
     """The everything-before-reset archive: the complete medication list
     (including stopped items), current screening findings, every baseline,
@@ -479,6 +536,13 @@ def build_archive_pdf(
     else:
         w.text("No baselines were set.", size=9.5, color=_GRAY, gap=6)
     w.space(4)
+
+    w.rule()
+    w.text("LAB RESULTS", size=11.5, bold=True, gap=6)
+    if labs:
+        _lab_block(w, labs)
+    else:
+        w.text("No lab results were on file.", size=9.5, color=_GRAY, gap=6)
 
     w.rule()
     w.text("COMPLETE CHANGE HISTORY", size=11.5, bold=True, gap=6)

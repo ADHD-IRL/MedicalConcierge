@@ -8,11 +8,18 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from dataclasses import dataclass, field
 
 import anthropic
 
 from app.config import get_settings
-from app.schemas import ExtractedItem, RecordKind, SourceType  # noqa: F401 (SourceType used in schema enum)
+from app.schemas import (  # noqa: F401 (SourceType/LabFlag used in schema enums)
+    ExtractedItem,
+    LabFlag,
+    LabResult,
+    RecordKind,
+    SourceType,
+)
 
 _TOOL_NAME = "record_extraction"
 
@@ -26,6 +33,21 @@ BATCH_MAX_BYTES = 15_000_000
 # never approaches the output ceiling.
 BATCH_MAX_IMAGES = 5
 MAX_OUTPUT_TOKENS = 16384
+
+
+@dataclass
+class ExtractionResult:
+    """What one document yielded. Labs ride the same vision pass as the
+    medications: a visit summary routinely carries both, and reading it twice
+    would cost twice as much to learn the same thing."""
+
+    items: list[ExtractedItem] = field(default_factory=list)
+    labs: list[LabResult] = field(default_factory=list)
+
+    def __iadd__(self, other: "ExtractionResult") -> "ExtractionResult":
+        self.items += other.items
+        self.labs += other.labs
+        return self
 
 
 class ExtractionTruncated(RuntimeError):
@@ -67,13 +89,40 @@ _ITEM_SCHEMA = {
     ],
 }
 
+_LAB_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Test name as written, e.g. 'INR', 'eGFR', 'ALT'."},
+        "value": {
+            "type": "string",
+            "description": "Result exactly as printed, including any inequality "
+            "('<0.01') or qualitative result ('negative'). Never round or convert.",
+        },
+        "unit": {"type": ["string", "null"]},
+        "reference_range": {"type": ["string", "null"], "description": "As printed, e.g. '0.8-1.2'."},
+        "flag": {
+            "type": "string",
+            "enum": [f.value for f in LabFlag],
+            "description": "Use the document's own flag (H/L/*/CRITICAL) where shown; "
+            "'normal' when it is explicitly in range; 'unknown' when the page gives no "
+            "range and no flag - do NOT infer out-of-range from your own knowledge.",
+        },
+        "collected_date": {"type": ["string", "null"], "description": "ISO format if determinable."},
+        "panel_name": {"type": ["string", "null"], "description": "e.g. 'CMP', 'CBC', if grouped."},
+        "extraction_confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "ambiguities": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["name", "value", "flag", "extraction_confidence", "ambiguities"],
+}
+
 _TOOL_DEFINITION = {
     "name": _TOOL_NAME,
-    "description": "Report every medication or supplement mention found in the provided images.",
+    "description": "Report every medication, supplement, and laboratory result found in the provided images.",
     "input_schema": {
         "type": "object",
         "properties": {
             "items": {"type": "array", "items": _ITEM_SCHEMA},
+            "labs": {"type": "array", "items": _LAB_SCHEMA},
         },
         "required": ["items"],
     },
@@ -125,8 +174,19 @@ document, leave it null rather than guessing. Never infer a drug's full
 identity from context alone if the visible text doesn't support it -- report
 what's legible and flag the rest in `ambiguities`.
 {_CONFIDENCE_RUBRIC}
+Also extract every LABORATORY RESULT visible on these pages into `labs`.
+Lab values matter here because the panel that reads this reasons about kidney
+and liver function, anticoagulation, and thyroid levels, and without real
+numbers it can only guess. Transcribe each result exactly as printed - keep
+the units, keep inequalities like "<0.01", keep qualitative results like
+"negative", and never convert or round. Copy the reference range as shown.
+For `flag`, use the document's own marking (H, L, *, CRITICAL) or 'normal'
+when it is explicitly flagged in range; use 'unknown' when the page shows no
+range and no flag. Do not decide from your own knowledge that a value is
+abnormal - that is the reader's clinician's job, not a transcription task.
+
 If there are no relevant items in the image(s), call the tool with an empty
-`items` list.
+`items` list, and likewise an empty `labs` list when there are no results.
 """
 
 
@@ -149,25 +209,27 @@ def _batch_images(images: list[tuple[bytes, str]]) -> list[list[tuple[bytes, str
     return batches
 
 
-def extract_records(images: list[tuple[bytes, str]]) -> list[ExtractedItem]:
+def extract_records(images: list[tuple[bytes, str]]) -> ExtractionResult:
     """Runs vision + forced-tool-call extraction over all provided page
-    images (in one or more batched requests) and returns validated
-    ExtractedItem records - medicines and supplements together, each
-    classified by the model. An optional verification pass per batch
-    catches items the first pass missed."""
+    images (in one or more batched requests) and returns validated records -
+    medicines, supplements, and laboratory results, each classified by the
+    model. An optional verification pass per batch catches medications and
+    supplements the first pass missed."""
 
     settings = get_settings()
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
     batches = _batch_images(images)
     multi_part = len(batches) > 1
-    items: list[ExtractedItem] = []
+    result = ExtractionResult()
     for batch in batches:
-        batch_items = _extract_batch(client, settings, batch, multi_part)
+        batch_result = _extract_batch(client, settings, batch, multi_part)
         if settings.enable_verification_pass:
-            batch_items += _verification_pass(client, settings, batch, batch_items)
-        items.extend(batch_items)
-    return items
+            batch_result.items += _verification_pass(
+                client, settings, batch, batch_result.items
+            )
+        result += batch_result
+    return result
 
 
 def _image_blocks(batch: list[tuple[bytes, str]]) -> list[dict]:
@@ -200,7 +262,7 @@ def _extract_batch(
     settings,
     batch: list[tuple[bytes, str]],
     multi_part: bool,
-) -> list[ExtractedItem]:
+) -> ExtractionResult:
     """One extraction request. If the response hits the output-token ceiling
     (a very dense document), the batch is split in half and retried rather
     than silently returning a truncated - possibly empty - item list."""
@@ -212,7 +274,7 @@ def _extract_batch(
         else ""
     )
     content = _image_blocks(batch) + [
-        {"type": "text", "text": f"Extract every medication and supplement now.{part_note}"}
+        {"type": "text", "text": f"Extract every medication, supplement, and lab result now.{part_note}"}
     ]
 
     response = _call(client, settings, content)
@@ -220,9 +282,9 @@ def _extract_batch(
     if response.stop_reason == "max_tokens":
         if len(batch) > 1:
             mid = len(batch) // 2
-            return _extract_batch(client, settings, batch[:mid], True) + _extract_batch(
-                client, settings, batch[mid:], True
-            )
+            split = _extract_batch(client, settings, batch[:mid], True)
+            split += _extract_batch(client, settings, batch[mid:], True)
+            return split
         raise ExtractionTruncated(
             "One page contains more text than can be extracted in a single "
             "pass. Try uploading a clearer or cropped version of that page."
@@ -261,7 +323,7 @@ def _verification_pass(
         response = _call(client, settings, content)
         if response.stop_reason == "max_tokens":
             return []
-        extras = _parse_response(response)
+        extras = _parse_response(response).items
     except Exception:
         logging.getLogger(__name__).warning("Verification pass failed", exc_info=True)
         return []
@@ -277,22 +339,27 @@ def _verification_pass(
     return fresh
 
 
-def _parse_response(response: anthropic.types.Message) -> list[ExtractedItem]:
+def _parse_response(response: anthropic.types.Message) -> ExtractionResult:
     for block in response.content:
         if block.type == "tool_use" and block.name == _TOOL_NAME:
-            items: list[ExtractedItem] = []
+            result = ExtractionResult()
             invalid = 0
             for raw in block.input.get("items", []):
                 try:
-                    items.append(ExtractedItem.model_validate(raw))
+                    result.items.append(ExtractedItem.model_validate(raw))
+                except Exception:
+                    invalid += 1
+            for raw in block.input.get("labs") or []:
+                try:
+                    result.labs.append(LabResult.model_validate(raw))
                 except Exception:
                     invalid += 1
             if invalid:
                 logging.getLogger(__name__).warning(
-                    "Dropped %d malformed extraction item(s) out of %d",
-                    invalid, invalid + len(items),
+                    "Dropped %d malformed extraction row(s) out of %d",
+                    invalid, invalid + len(result.items) + len(result.labs),
                 )
-            return items
+            return result
     raise ValueError(
         f"Model did not return a '{_TOOL_NAME}' tool call: "
         f"{json.dumps([b.type for b in response.content])}"

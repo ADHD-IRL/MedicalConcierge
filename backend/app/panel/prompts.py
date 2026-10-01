@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from app.interactions.knowledge_base import InteractionRule  # noqa: F401  (typing only)
 from app.panel.registry import Agent, load_registry
-from app.schemas import Finding, ItemStatus, MedListItem, NormalizedRecord
+from app.schemas import Finding, ItemStatus, LabResult, MedListItem, NormalizedRecord
 
 
 def house_rules() -> str:
@@ -68,11 +68,26 @@ def _item_line(item: MedListItem, confidence: dict[str, float], review: set[str]
     return "- " + " ".join(bits)
 
 
+def _lab_line(lab: LabResult) -> str:
+    bits = [f"- {lab.name}: {lab.display}"]
+    if lab.reference_range:
+        bits.append(f"(ref {lab.reference_range})")
+    if lab.flag.value != "unknown":
+        bits.append(f"[{lab.flag.value.upper()}]")
+    if lab.collected_date:
+        bits.append(f"collected {lab.collected_date}")
+    if lab.needs_review:
+        bits.append("** READING UNCERTAIN - confirm before relying on it **")
+    return " ".join(bits)
+
+
 def regimen_brief(
     items: list[MedListItem],
     records: list[NormalizedRecord],
     findings: list[Finding],
     note: str,
+    labs: list[LabResult] | None = None,
+    answered=None,
 ) -> str:
     """Everything the panel is given about the person. Provenance is included
     deliberately: an agent reasoning about a dose should be able to see how
@@ -91,6 +106,21 @@ def regimen_brief(
         parts.append(f"\n## Recently stopped ({len(stopped)})")
         parts += [_item_line(i, confidence, review) for i in stopped]
 
+    if labs:
+        parts.append(f"\n## Lab results on file ({len(labs)}, most recent first)")
+        parts.append(
+            "Read these as written. Where a value settles something you would "
+            "otherwise have to assume, say so explicitly rather than hedging."
+        )
+        parts += [_lab_line(lab) for lab in labs]
+    else:
+        parts.append(
+            "\n## Lab results on file\n"
+            "- NONE. No lab values have been uploaded, so kidney function, liver "
+            "enzymes, INR, and thyroid levels are all unknown to this panel. Say what "
+            "you are assuming rather than reasoning as though you knew."
+        )
+
     if findings:
         parts.append("\n## What the built-in rule screen already flagged")
         parts.append(
@@ -102,6 +132,18 @@ def regimen_brief(
             parts.append(
                 f"- [{f.severity.value}] {f.title} ({', '.join(f.involved)}): {f.explanation}"
             )
+
+    if answered:
+        parts.append(f"\n## Answers since the last review ({len(answered)})")
+        parts.append(
+            "The panel previously said these observations would settle open questions, "
+            "and the person went and found out. Treat each as established fact. Where an "
+            "answer meets your own stated concede-when condition, CONCEDE explicitly and "
+            "say so - a panel that never changes its mind when given the evidence it "
+            "asked for is not deliberating."
+        )
+        for obs in answered:
+            parts.append(f'- Asked: {obs.text}\n  Answer: {obs.answer}')
 
     parts.append("\n## What the person said")
     parts.append(f'"""\n{note.strip() or "(they did not add a note)"}\n"""')

@@ -469,6 +469,54 @@ fill in is most of what makes it legible. The completed review is persisted
 (one row, latest only) so it survives a reload, since re-running costs real
 money.
 
+## 5.10 Labs, and closing the loop
+
+Two additions that between them change what the panel can do.
+
+### Lab results
+
+Labs ride the **same vision pass** as the medications (`labs` array on the
+extraction tool schema): a visit summary routinely carries both, and reading
+it twice would cost twice as much to learn the same thing. `extract_records`
+returns an `ExtractionResult(items, labs)`; `process_document` returns a
+`DocumentResult`.
+
+Values are stored as **strings, never floats**. Lab reports carry units,
+inequalities (`<0.01`) and qualitative results (`negative`), and silently
+coercing those is how a tool ends up confidently wrong about a number. The
+extractor is also explicitly forbidden from deciding a value is abnormal from
+its own knowledge — it copies the document's own H/L/CRITICAL flag or records
+`unknown`.
+
+This matters because several agents were reasoning blind. Nephrology's own
+prompt said *"I usually cannot see kidney function, and here is what I am
+assuming."* With labs on file it analyses a number instead. When there are no
+labs, `regimen_brief` says so explicitly and instructs agents to state their
+assumptions rather than reason as though they knew.
+
+### Tracked observations (`app/panel/observations.py`)
+
+The panel's most valuable sentences are the ones naming what would settle a
+disagreement — `what_would_settle_it` per dissent, plus
+`discriminating_observations`. On their own they are a to-do list the reader
+has to hold in their head. `derive()` turns them into tracked observations,
+dissent-sourced first (those settle an argument rather than merely informing
+one), de-duplicated on a punctuation-insensitive key so a re-run does not ask
+the same question twice.
+
+The person answers them (`POST /api/observations/{id}/answer`) or marks them
+not applicable. On the next run, answered observations enter the brief as
+**established fact**, with agents instructed to concede explicitly where an
+answer meets their own `concedes_when` condition — the field that was
+previously decorative. Round 7 gained a `resolved` output so convergence is
+visible: what was settled, by which answer, and which expert changed its
+mind.
+
+One ordering constraint worth knowing: `save_panel_review` deliberately does
+**not** clear observations, only `clear_all` does. Answered observations are
+the input that makes the next run converge, so wiping them on each run would
+silently break the loop while everything still appeared to work.
+
 ## 6. The API surface (`app/api/routes.py`)
 
 | Endpoint | What it does |
@@ -485,6 +533,10 @@ money.
 | `POST /api/baselines` | snapshot the current list under a name |
 | `GET /api/list/compare/{baseline_id}` | added / stopped / changed since that baseline |
 | `GET /api/export?format=json\|csv\|pdf` | full export; JSON includes the list, baselines, and history; PDF is the clinician summary |
+| `GET /api/labs` | lab values read off uploaded documents |
+| `GET /api/observations` | what the panel said would settle its open questions, and what has been answered |
+| `POST /api/observations/{id}/answer` | record what the person found out; the next run reads it as fact |
+| `POST /api/observations/{id}/dismiss` | not applicable, without pretending it was answered |
 | `GET /api/panel/roster` | the 29 experts, their biases and adversarial edges — the panel is inspectable, not a black box |
 | `POST /api/panel` | runs the eight-round review over the current list, streaming SSE progress; last event carries the review |
 | `GET /api/panel/latest` | the most recent completed review, so it survives a reload |

@@ -4,7 +4,7 @@ import asyncio
 import csv
 import io
 import json
-from datetime import date
+from datetime import date, datetime
 
 import anthropic
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -19,8 +19,10 @@ from app.ingestion.file_loader import UnsupportedFileType
 from app.ingestion.multimodal_extractor import ExtractionTruncated
 from app.normalization import supplement_terms
 from app.panel import engine as panel_engine
+from app.panel import observations as panel_observations
 from app.panel.llm import PanelUnavailable
 from app.panel.registry import load_registry
+from app.panel.schemas import ObservationStatus
 from app.schemas import IngestResponse, MedListItem, RecordKind, SourceType
 from app.storage.med_list import EDITABLE_FIELDS, MedListStore, item_to_record
 from app.storage.store import RecordStore
@@ -60,7 +62,7 @@ async def _run_ingest(file: UploadFile):
             f"{MAX_UPLOAD_BYTES // 1_000_000} MB. A photo or a smaller PDF works best.",
         )
     try:
-        records = await process_document(file.filename, data)
+        result = await process_document(file.filename, data)
     except UnsupportedFileType as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ExtractionTruncated as exc:
@@ -78,9 +80,13 @@ async def _run_ingest(file: UploadFile):
             f"{getattr(exc, 'message', str(exc))[:300]}",
         ) from exc
 
-    get_store().save_all(records)
-    get_list_store().sync_from_records(records)
-    return IngestResponse(filename=file.filename, records=records)
+    store = get_store()
+    store.save_all(result.records)
+    store.save_labs(result.labs)
+    get_list_store().sync_from_records(result.records)
+    return IngestResponse(
+        filename=file.filename, records=result.records, labs=result.labs
+    )
 
 
 @router.get("/health")
@@ -116,6 +122,15 @@ def list_records(kind: RecordKind | None = None):
     store = get_store()
     records = store.list_all(kind=kind.value if kind else None)
     return {"records": [r.model_dump(mode="json") for r in records]}
+
+
+@router.get("/labs")
+def list_labs():
+    """Lab values read off uploaded documents. The panel reasons about kidney
+    and liver function, anticoagulation, and thyroid levels, and without these
+    several of its experts can only state what they are assuming."""
+    labs = get_store().list_labs()
+    return {"labs": [lab.model_dump(mode="json") for lab in labs]}
 
 
 @router.get("/findings")
@@ -164,13 +179,56 @@ def panel_pdf():
     if review is None:
         raise HTTPException(status_code=404, detail="No panel review yet - convene the panel first.")
 
-    pdf_bytes = build_panel_pdf(review, store.list_items())
+    pdf_bytes = build_panel_pdf(review, store.list_items(), get_store().list_labs())
     filename = f"panel_review_{review.created_at.date().isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get("/observations")
+def list_observations():
+    """What the panel said would settle its open questions, and what the
+    person has since found out."""
+    tracked = get_list_store().list_observations()
+    return {"observations": [o.model_dump(mode="json") for o in tracked]}
+
+
+class AnswerRequest(BaseModel):
+    answer: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.post("/observations/{observation_id}/answer")
+def answer_observation(observation_id: str, request: AnswerRequest):
+    """Record what the person found out. The next panel run reads it as
+    established fact, and any expert whose concede-when condition it meets is
+    asked to concede explicitly."""
+    store = get_list_store()
+    observation = store.get_observation(observation_id)
+    if observation is None:
+        raise HTTPException(status_code=404, detail="No such observation.")
+
+    observation.answer = request.answer.strip()
+    observation.status = ObservationStatus.answered
+    observation.answered_at = datetime.utcnow()
+    store.update_observation(observation)
+    return {"observation": observation.model_dump(mode="json")}
+
+
+@router.post("/observations/{observation_id}/dismiss")
+def dismiss_observation(observation_id: str):
+    """Not applicable, or not worth chasing. Keeps it out of future runs
+    without pretending it was answered."""
+    store = get_list_store()
+    observation = store.get_observation(observation_id)
+    if observation is None:
+        raise HTTPException(status_code=404, detail="No such observation.")
+
+    observation.status = ObservationStatus.dismissed
+    store.update_observation(observation)
+    return {"observation": observation.model_dump(mode="json")}
 
 
 class PanelRequest(BaseModel):
@@ -194,9 +252,14 @@ async def run_panel(request: PanelRequest):
             detail="The expert panel needs an Anthropic API key. Add one to backend/.env.",
         )
 
-    items = get_list_store().list_items()
-    records = get_store().list_all()  # real extraction confidence, for the record auditor
+    list_store = get_list_store()
+    store = get_store()
+    items = list_store.list_items()
+    records = store.list_all()  # real extraction confidence, for the record auditor
     findings = evaluate(_screening_records())
+    labs = store.list_labs()
+    prior = list_store.list_observations()
+    answered = panel_observations.answered(prior)
 
     async def stream():
         queue: asyncio.Queue = asyncio.Queue()
@@ -204,10 +267,15 @@ async def run_panel(request: PanelRequest):
         async def runner():
             try:
                 review = await panel_engine.run_panel(
-                    items, records, findings, request.note, queue.put_nowait
+                    items, records, findings, request.note, queue.put_nowait,
+                    labs=labs, answered=answered,
                 )
                 if not review.halted:
-                    get_list_store().save_panel_review(review)
+                    list_store.save_panel_review(review)
+                    # Turn this review's open questions into things the person
+                    # can go and answer, which is what makes the next run
+                    # converge rather than repeat.
+                    list_store.save_observations(panel_observations.derive(review, prior))
                 await queue.put({"type": "review", "review": review.model_dump(mode="json")})
             except PanelUnavailable as exc:
                 await queue.put({"type": "error", "message": str(exc)})
@@ -340,6 +408,7 @@ def reset_all():
         baselines=list_store.list_baselines(),
         history=list_store.history(),
         findings=evaluate(_screening_records()),
+        labs=store.list_labs(),
     )
 
     store.clear_all()
@@ -369,7 +438,7 @@ def export_records(format: str = "json"):
 
     if format == "pdf":
         screening = _screening_records()
-        pdf_bytes = build_pdf(screening, findings=evaluate(screening))
+        pdf_bytes = build_pdf(screening, findings=evaluate(screening), labs=get_store().list_labs())
         filename = f"medication_summary_{date.today().isoformat()}.pdf"
         return Response(
             content=pdf_bytes,

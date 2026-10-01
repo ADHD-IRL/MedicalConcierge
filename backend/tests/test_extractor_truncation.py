@@ -55,7 +55,7 @@ def _run(monkeypatch, fake, images, verification=False):
     )
     monkeypatch.setattr(me, "get_settings", lambda: settings)
     monkeypatch.setattr(me.anthropic, "Anthropic", lambda api_key: fake)
-    return me.extract_records(images)
+    return me.extract_records(images).items
 
 
 PAGES = [(b"page-one", "image/jpeg"), (b"page-two", "image/jpeg")]

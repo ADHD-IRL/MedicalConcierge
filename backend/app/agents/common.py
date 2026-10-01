@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from app.config import get_settings
 from app.ingestion.file_loader import load_as_images
 from app.ingestion.multimodal_extractor import extract_records
 from app.normalization import supplement_terms
 from app.normalization.rxnorm_client import RxNormClient
-from app.schemas import ExtractedItem, NormalizedRecord, RecordKind, RxNormMatch
+from app.schemas import ExtractedItem, LabResult, NormalizedRecord, RecordKind, RxNormMatch
 
 _RXNORM_ACCEPT_THRESHOLD = 50.0
 
@@ -26,18 +28,33 @@ async def normalize_item(client: RxNormClient, item: ExtractedItem) -> RxNormMat
     return match
 
 
-async def process_document(filename: str, data: bytes) -> list[NormalizedRecord]:
+@dataclass
+class DocumentResult:
+    records: list[NormalizedRecord] = field(default_factory=list)
+    labs: list[LabResult] = field(default_factory=list)
+
+
+async def process_document(filename: str, data: bytes) -> DocumentResult:
     """The full ingestion pipeline for one uploaded document: rasterize/load
-    -> single-pass multimodal extraction (medicines AND supplements, each
-    classified by the model) -> per-item normalization -> NormalizedRecord."""
+    -> single-pass multimodal extraction (medicines, supplements, AND lab
+    results, each classified by the model) -> per-item normalization ->
+    NormalizedRecord. Labs need no normalization pass - they are transcribed
+    values, not entities to be resolved against a vocabulary."""
 
     settings = get_settings()
     images = load_as_images(filename, data, dpi=settings.pdf_render_dpi)
-    extracted_items = extract_records(images)
+    extracted = extract_records(images)
+
+    for lab in extracted.labs:
+        lab.source_filename = filename
+        lab.needs_review = (
+            lab.extraction_confidence < settings.review_confidence_threshold
+            or bool(lab.ambiguities)
+        )
 
     client = make_rxnorm_client()
     records: list[NormalizedRecord] = []
-    for item in extracted_items:
+    for item in extracted.items:
         match = await normalize_item(client, item)
         records.append(
             NormalizedRecord.build(
@@ -48,4 +65,4 @@ async def process_document(filename: str, data: bytes) -> list[NormalizedRecord]
                 source_filename=filename,
             )
         )
-    return records
+    return DocumentResult(records=records, labs=extracted.labs)

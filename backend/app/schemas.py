@@ -99,12 +99,51 @@ class NormalizedRecord(BaseModel):
         )
 
 
+class LabFlag(str, Enum):
+    normal = "normal"
+    high = "high"
+    low = "low"
+    critical = "critical"
+    unknown = "unknown"
+
+
+class LabResult(BaseModel):
+    """One laboratory value read off a document.
+
+    Values stay strings: lab reports carry units, inequalities ('<0.01'),
+    and qualitative results ('negative') that a float cannot hold, and
+    silently coercing them is how a tool ends up confidently wrong about a
+    number. The panel reads them as written, the way a clinician would."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = Field(..., description="Test name as written, e.g. 'INR', 'eGFR', 'ALT'.")
+    value: str = Field(..., description="Result as written, including inequalities.")
+    unit: str | None = None
+    reference_range: str | None = Field(None, description="e.g. '0.8-1.2', as printed.")
+    flag: LabFlag = LabFlag.unknown
+    collected_date: str | None = Field(None, description="ISO date if determinable.")
+    panel_name: str | None = Field(None, description="e.g. 'CMP', 'CBC', if grouped.")
+    source_filename: str = ""
+    extraction_confidence: float = Field(1.0, ge=0.0, le=1.0)
+    needs_review: bool = False
+    ambiguities: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @property
+    def display(self) -> str:
+        parts = [self.value]
+        if self.unit:
+            parts.append(self.unit)
+        return " ".join(parts)
+
+
 class IngestResponse(BaseModel):
     filename: str
     kind: RecordKind | None = Field(
         None, description="Unset for unified ingestion - each record carries its own kind."
     )
     records: list[NormalizedRecord]
+    labs: list[LabResult] = Field(default_factory=list)
 
 
 class ItemStatus(str, Enum):

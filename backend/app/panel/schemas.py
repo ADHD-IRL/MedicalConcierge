@@ -111,6 +111,47 @@ class Question(BaseModel):
     about: list[str] = Field(default_factory=list, description="Drugs the question concerns.")
 
 
+class ObservationStatus(str, Enum):
+    open = "open"
+    answered = "answered"
+    dismissed = "dismissed"
+
+
+class ObservationSource(str, Enum):
+    dissent = "dissent"              # what_would_settle_it on an unresolved split
+    discriminating = "discriminating"  # a general discriminating observation
+
+
+class TrackedObservation(BaseModel):
+    """Something the panel said would settle a question, turned into something
+    the person can actually go and find out.
+
+    This is the loop the review would otherwise leave open: the panel names
+    the observation that would decide a disagreement, and without this the
+    reader is left holding it on a notepad. Answered observations are fed back
+    into the next run, where an agent whose concede-when condition is now met
+    is expected to concede."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    text: str
+    source: ObservationSource = ObservationSource.discriminating
+    topic: str = Field("", description="The dissent or concern this came from.")
+    panel_review_id: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    status: ObservationStatus = ObservationStatus.open
+    answer: str = ""
+    answered_at: datetime | None = None
+
+
+class Resolved(BaseModel):
+    """A question a previous panel left open that the answers have now settled."""
+
+    topic: str
+    settled_by: str = Field(..., description="The answer that did it, in the person's words.")
+    outcome: str = Field(..., description="What the panel now concludes, and who conceded.")
+
+
 class PanelReview(BaseModel):
     """The full output of one panel run."""
 
@@ -134,6 +175,7 @@ class PanelReview(BaseModel):
     discriminating_observations: list[str] = Field(default_factory=list)
     questions: list[Question] = Field(default_factory=list)
     dissent: list[Dissent] = Field(default_factory=list)
+    resolved: list[Resolved] = Field(default_factory=list)
     what_this_cannot_tell: list[str] = Field(default_factory=list)
     correlated_model_note: str = ""
 

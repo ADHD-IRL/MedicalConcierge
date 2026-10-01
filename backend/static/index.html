@@ -347,6 +347,46 @@
   .panel-take-who { font-size: .78rem; font-weight: 650; margin-bottom: .15rem; }
   .panel-take-body { font-size: .84rem; white-space: pre-wrap; color: var(--text-dim); }
 
+  /* --- labs --- */
+  .lab-row {
+    display: flex; align-items: baseline; gap: .6rem; padding: .4rem 0;
+    border-bottom: 1px solid var(--border); font-size: .86rem;
+  }
+  .lab-row:last-child { border-bottom: none; }
+  .lab-name { font-weight: 600; min-width: 110px; }
+  .lab-value { font-variant-numeric: tabular-nums; }
+  .lab-ref { color: var(--text-dim); font-size: .78rem; }
+  .lab-date { margin-left: auto; color: var(--text-dim); font-size: .76rem; white-space: nowrap; }
+  .lab-flag {
+    font-size: .68rem; font-weight: 700; padding: .1rem .35rem; border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .lab-flag.high, .lab-flag.low { background: var(--warn-soft); color: var(--warn); }
+  .lab-flag.critical { background: var(--bad-soft); color: var(--bad); }
+  .lab-flag.normal { background: var(--good-soft); color: var(--good); }
+  .lab-review { color: var(--warn); font-size: .76rem; }
+
+  /* --- tracked observations (closing the loop) --- */
+  .obs-item {
+    border: 1px solid var(--border); border-left: 3px solid var(--warn);
+    border-radius: 8px; padding: .65rem .8rem; margin-bottom: .55rem;
+  }
+  .obs-item.answered { border-left-color: var(--good); }
+  .obs-text { font-size: .87rem; font-weight: 600; margin-bottom: .2rem; }
+  .obs-topic { font-size: .76rem; color: var(--text-dim); margin-bottom: .45rem; }
+  .obs-answer { font-size: .84rem; color: var(--good); }
+  .obs-form { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .obs-form input {
+    flex: 1 1 240px; font: inherit; font-size: .84rem; padding: .4rem .55rem;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface-2); color: var(--text);
+  }
+  .panel-resolved {
+    background: var(--good-soft); color: var(--good); border-radius: 8px;
+    padding: .7rem .8rem; margin-bottom: .6rem; font-size: .86rem;
+  }
+  .panel-resolved .topic { font-weight: 650; }
+
   /* --- welcome / splash --- */
   .splash-overlay {
     position: fixed; inset: 0; z-index: 100;
@@ -593,6 +633,14 @@
       full one. Never stop a medicine without talking to your doctor.</div>
   </section>
 
+  <section class="card" id="labCard" hidden>
+    <h2>Lab results <span class="badge b-kind" id="labCount"></span></h2>
+    <p class="panel-intro">Read from the documents you uploaded. The panel reasons about
+      kidney and liver function, anticoagulation and thyroid levels &mdash; without these
+      numbers several of its experts can only say what they're assuming.</p>
+    <div id="labList"></div>
+  </section>
+
   <section class="card" id="panelCard">
     <h2>Expert panel review <span class="badge b-kind" id="panelBadge" hidden></span></h2>
     <p class="panel-intro">
@@ -609,6 +657,13 @@
     <div class="panel-progress" id="panelProgress" hidden>
       <div class="panel-round" id="panelRound">Starting&hellip;</div>
       <div class="panel-speakers" id="panelSpeakers"></div>
+    </div>
+    <div id="obsSection" hidden>
+      <div class="panel-h3">Open questions the panel is waiting on</div>
+      <p class="panel-intro">The panel said each of these would settle something it
+        couldn't. Answer any you've found out and the next review treats it as fact
+        &mdash; experts whose stated conditions it meets are asked to concede.</p>
+      <div id="obsList"></div>
     </div>
     <div id="panelResult" hidden></div>
     <div class="warn-note" id="panelFoot" hidden>
@@ -652,6 +707,79 @@ let records = [];
 let filter = 'all';
 
 const $ = (id) => document.getElementById(id);
+
+// --- lab results ---
+function renderLabs(labs) {
+  $('labCard').hidden = labs.length === 0;
+  $('labCount').textContent = labs.length;
+  $('labList').innerHTML = labs.map(l => {
+    const flag = l.flag && l.flag !== 'unknown'
+      ? '<span class="lab-flag ' + esc(l.flag) + '">' + esc(l.flag) + '</span>' : '';
+    return '<div class="lab-row">'
+      + '<span class="lab-name">' + esc(l.name) + '</span>'
+      + '<span class="lab-value">' + esc(l.value) + (l.unit ? ' ' + esc(l.unit) : '') + '</span>'
+      + flag
+      + (l.reference_range ? '<span class="lab-ref">ref ' + esc(l.reference_range) + '</span>' : '')
+      + (l.needs_review ? '<span class="lab-review">&#9888;&#65039; check this reading</span>' : '')
+      + '<span class="lab-date">' + esc(l.collected_date || '') + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function loadLabs() {
+  return fetch('/api/labs').then(r => r.json()).then(d => renderLabs(d.labs)).catch(() => {});
+}
+
+// --- tracked observations (closing the loop) ---
+let observations = [];
+
+function renderObservations() {
+  const open = observations.filter(o => o.status === 'open');
+  const answered = observations.filter(o => o.status === 'answered');
+  $('obsSection').hidden = open.length === 0 && answered.length === 0;
+
+  $('obsList').innerHTML = [...open, ...answered].map(o => {
+    if (o.status === 'answered') {
+      return '<div class="obs-item answered"><div class="obs-text">' + esc(o.text) + '</div>'
+        + (o.topic ? '<div class="obs-topic">Settles: ' + esc(o.topic) + '</div>' : '')
+        + '<div class="obs-answer">&#10003; ' + esc(o.answer) + '</div></div>';
+    }
+    return '<div class="obs-item"><div class="obs-text">' + esc(o.text) + '</div>'
+      + (o.topic ? '<div class="obs-topic">Would settle: ' + esc(o.topic) + '</div>' : '')
+      + '<div class="obs-form">'
+      + '<input type="text" data-obs="' + esc(o.id) + '" placeholder="What did you find out?">'
+      + '<button class="btn tiny" data-answer="' + esc(o.id) + '">Save</button>'
+      + '<button class="btn tiny" data-dismiss="' + esc(o.id) + '">Not applicable</button>'
+      + '</div></div>';
+  }).join('');
+}
+
+$('obsList').addEventListener('click', async (e) => {
+  const answerId = e.target.dataset.answer;
+  const dismissId = e.target.dataset.dismiss;
+  if (answerId) {
+    const input = document.querySelector('input[data-obs="' + answerId + '"]');
+    const answer = (input && input.value || '').trim();
+    if (!answer) { input && input.focus(); return; }
+    e.target.disabled = true;
+    await fetch('/api/observations/' + answerId + '/answer', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer })
+    });
+    await loadObservations();
+  } else if (dismissId) {
+    e.target.disabled = true;
+    await fetch('/api/observations/' + dismissId + '/dismiss', { method: 'POST' });
+    await loadObservations();
+  }
+});
+
+function loadObservations() {
+  return fetch('/api/observations').then(r => r.json()).then(d => {
+    observations = d.observations;
+    renderObservations();
+  }).catch(() => {});
+}
 
 // --- expert panel ---
 const GRADE_LABEL = {
@@ -720,6 +848,7 @@ $('panelBtn').addEventListener('click', async () => {
           throw new Error(ev.message);
         } else if (ev.type === 'review') {
           renderPanel(ev.review);
+          loadObservations();  // the run just produced a fresh set to chase
         }
       }
     }
@@ -746,6 +875,13 @@ function renderPanel(r) {
     return;
   }
 
+  if (r.resolved && r.resolved.length) {
+    out.push(r.resolved.map(x =>
+      '<div class="panel-resolved">&#10003; <span class="topic">Settled: ' + esc(x.topic) + '</span>'
+      + '<div>' + esc(x.outcome) + '</div>'
+      + '<div style="font-size:.78rem;opacity:.85">Because you found out: ' + esc(x.settled_by) + '</div>'
+      + '</div>').join(''));
+  }
   out.push('<div class="panel-headline">' + esc(r.headline) + '</div>');
   out.push('<div class="panel-summary">' + esc(r.summary) + '</div>');
 
@@ -855,6 +991,8 @@ $('panelPdfBtn').addEventListener('click', () => { window.location = '/api/panel
 fetch('/api/panel/latest').then(r => r.json()).then(d => {
   if (d.review) renderPanel(d.review);
 }).catch(() => {});
+loadObservations();
+loadLabs();
 
 // --- welcome / splash ---
 const SPLASH_KEY = 'mc_splash_seen';
@@ -933,10 +1071,15 @@ $('uploadBtn').addEventListener('click', async () => {
     render();
     loadFindings();
     loadMedList();
+    loadLabs();
     const n = data.records.length;
-    status.textContent = n === 0
-      ? 'Done — no medicines or supplements found in that document.'
-      : 'Done — added ' + n + ' record' + (n > 1 ? 's' : '') + '.';
+    const nLabs = (data.labs || []).length;
+    const bits = [];
+    if (n) bits.push(n + ' record' + (n > 1 ? 's' : ''));
+    if (nLabs) bits.push(nLabs + ' lab result' + (nLabs > 1 ? 's' : ''));
+    status.textContent = bits.length === 0
+      ? 'Done — no medicines, supplements or lab results found in that document.'
+      : 'Done — added ' + bits.join(' and ') + '.';
     fileInput.value = '';
     $('dropText').innerHTML = 'Drag a file here, or click to choose<br /><small>PDF, JPG, PNG or WebP</small>';
   } catch (e) {
@@ -1238,8 +1381,11 @@ $('resetBtn').addEventListener('click', async () => {
 
     // reset local state to the fresh-start view
     records = []; mlItems = []; mlBaselines = []; editingId = null; historyOpenId = null;
+    observations = [];
     $('diffPanel').hidden = true;
-    render(); renderMedList(); renderFindings([]);
+    $('panelResult').hidden = true; $('panelFoot').hidden = true;
+    $('panelPdfBtn').hidden = true; $('panelBadge').hidden = true;
+    render(); renderMedList(); renderFindings([]); renderLabs([]); renderObservations();
     $('mlStatus').textContent = 'Everything was archived to the downloaded PDF and erased. Fresh start!';
   } catch (e) {
     alert('Nothing was deleted - the archive could not be created: ' + e.message);
@@ -1248,7 +1394,7 @@ $('resetBtn').addEventListener('click', async () => {
   }
 });
 
-fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); loadMedList(); });
+fetch('/api/records').then(r => r.json()).then(d => { records = d.records; render(); loadFindings(); loadMedList(); loadLabs(); });
 </script>
 </body>
 </html>

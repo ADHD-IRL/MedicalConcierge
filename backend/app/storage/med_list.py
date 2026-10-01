@@ -46,6 +46,11 @@ CREATE TABLE IF NOT EXISTS baselines (
     created_at TEXT NOT NULL,
     payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS panel_reviews (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
 """
 
 EDITABLE_FIELDS = ("name", "dosage", "frequency", "notes", "status")
@@ -228,12 +233,36 @@ class MedListStore:
         return created
 
     def clear_all(self) -> None:
-        """Deletes the entire list, its history, and all baselines. Only
-        called by the reset flow, after the archive PDF has been generated."""
+        """Deletes the entire list, its history, all baselines, and any panel
+        reviews. Only called by the reset flow, after the archive PDF has been
+        generated."""
         with self._connect() as conn:
             conn.execute("DELETE FROM list_items")
             conn.execute("DELETE FROM list_history")
             conn.execute("DELETE FROM baselines")
+            conn.execute("DELETE FROM panel_reviews")
+
+    # --- panel reviews -------------------------------------------------------
+
+    def save_panel_review(self, review) -> None:
+        """Keeps the most recent completed review so it survives a reload and
+        can be turned into a PDF to take to an appointment. Only one is kept -
+        a review of a regimen that has since changed is misleading, not useful."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM panel_reviews")
+            conn.execute(
+                "INSERT INTO panel_reviews (id, created_at, payload) VALUES (?, ?, ?)",
+                (review.id, review.created_at.isoformat(), review.model_dump_json()),
+            )
+
+    def latest_panel_review(self):
+        from app.panel.schemas import PanelReview
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload FROM panel_reviews ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        return PanelReview.model_validate(json.loads(row[0])) if row else None
 
     # --- baselines -----------------------------------------------------------
 

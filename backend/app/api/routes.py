@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
+import json
 from datetime import date
 
 import anthropic
@@ -11,11 +13,14 @@ from pydantic import BaseModel, Field
 
 from app.agents.common import make_rxnorm_client, process_document
 from app.config import get_settings
-from app.export.pdf_report import build_archive_pdf, build_pdf
+from app.export.pdf_report import build_archive_pdf, build_panel_pdf, build_pdf
 from app.interactions.engine import evaluate
 from app.ingestion.file_loader import UnsupportedFileType
 from app.ingestion.multimodal_extractor import ExtractionTruncated
 from app.normalization import supplement_terms
+from app.panel import engine as panel_engine
+from app.panel.llm import PanelUnavailable
+from app.panel.registry import load_registry
 from app.schemas import IngestResponse, MedListItem, RecordKind, SourceType
 from app.storage.med_list import EDITABLE_FIELDS, MedListStore, item_to_record
 from app.storage.store import RecordStore
@@ -117,6 +122,114 @@ def list_records(kind: RecordKind | None = None):
 def list_findings():
     findings = evaluate(_screening_records())
     return {"findings": [f.model_dump(mode="json") for f in findings]}
+
+
+# --- SME panel ----------------------------------------------------------------
+
+
+@router.get("/panel/roster")
+def panel_roster():
+    """Who could be in the room, and what each would push back on. Shown so
+    the panel's composition is inspectable rather than a black box."""
+    registry = load_registry()
+    return {
+        "version": registry.version,
+        "disclaimer": registry.disclaimer,
+        "house_rules": list(registry.house_rules),
+        "rounds": registry.protocol["rounds"],
+        "agents": [
+            {
+                "id": a.id, "name": a.name, "panel": a.panel, "discipline": a.discipline,
+                "stance": a.stance, "bias_watch": a.bias_watch, "concedes_when": a.concedes_when,
+                "challenges": list(a.typically_challenges), "governance": a.is_governance,
+            }
+            for a in registry.agents.values()
+        ],
+    }
+
+
+@router.get("/panel/latest")
+def latest_panel_review():
+    """The most recent completed review, so it survives a page reload."""
+    review = get_list_store().latest_panel_review()
+    return {"review": review.model_dump(mode="json") if review else None}
+
+
+@router.get("/panel/pdf")
+def panel_pdf():
+    """The panel's questions and unresolved disagreements, to hand over at an
+    appointment."""
+    store = get_list_store()
+    review = store.latest_panel_review()
+    if review is None:
+        raise HTTPException(status_code=404, detail="No panel review yet - convene the panel first.")
+
+    pdf_bytes = build_panel_pdf(review, store.list_items())
+    filename = f"panel_review_{review.created_at.date().isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+class PanelRequest(BaseModel):
+    note: str = Field("", max_length=4000)
+
+
+@router.post("/panel")
+async def run_panel(request: PanelRequest):
+    """Runs the eight-round panel over the current list, streaming progress as
+    server-sent events. The last event carries the finished review.
+
+    Streaming rather than one long response because the run takes a while and
+    watching the room fill in is most of what makes it legible."""
+
+    settings = get_settings()
+    if not settings.enable_panel:
+        raise HTTPException(status_code=503, detail="The expert panel is turned off.")
+    if not settings.anthropic_api_key.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="The expert panel needs an Anthropic API key. Add one to backend/.env.",
+        )
+
+    items = get_list_store().list_items()
+    records = get_store().list_all()  # real extraction confidence, for the record auditor
+    findings = evaluate(_screening_records())
+
+    async def stream():
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def runner():
+            try:
+                review = await panel_engine.run_panel(
+                    items, records, findings, request.note, queue.put_nowait
+                )
+                if not review.halted:
+                    get_list_store().save_panel_review(review)
+                await queue.put({"type": "review", "review": review.model_dump(mode="json")})
+            except PanelUnavailable as exc:
+                await queue.put({"type": "error", "message": str(exc)})
+            except anthropic.APIError as exc:
+                await queue.put({"type": "error", "message": f"The model API failed: {exc}"})
+            except Exception as exc:  # noqa: BLE001 - the stream must always close cleanly
+                await queue.put({"type": "error", "message": str(exc)})
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(runner())
+        try:
+            while (event := await queue.get()) is not None:
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+        finally:
+            task.cancel()
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # --- curated medication/supplement list --------------------------------------

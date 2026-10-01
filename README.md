@@ -11,6 +11,7 @@ traceable back to its source.
 
 - **Windows desktop — easiest way to run it:** [`docs/WINDOWS_SETUP.md`](docs/WINDOWS_SETUP.md) (double-click `Start-MedicalConcierge.bat`)
 - **New developer? Start here:** [`docs/DEVELOPER_GUIDE.pdf`](docs/DEVELOPER_GUIDE.pdf) — how the whole app works, end to end, including how Docker is used (source: [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md), rebuild with `docs/build_dev_guide.py`)
+- **The SME panel (29 experts, 8 adversarial rounds):** [`backend/data/panel_registry.json`](backend/data/panel_registry.json) — the roster and protocol as data; see §5.9 of the developer guide
 - **Full system architecture & hosting plan:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **MVP: multimodal medicine & supplement ingestion agents:** [`docs/MVP_INGESTION_AGENTS.md`](docs/MVP_INGESTION_AGENTS.md)
 - **Running the MVP locally:** [`backend/README.md`](backend/README.md)

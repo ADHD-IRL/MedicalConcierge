@@ -268,6 +268,85 @@
     font-size: .75rem; color: var(--text-dim); text-align: center;
   }
 
+  /* --- expert panel --- */
+  .panel-intro { font-size: .84rem; color: var(--text-dim); margin: -.2rem 0 .9rem; }
+  #panelNote {
+    width: 100%; min-height: 62px; resize: vertical; font: inherit; font-size: .88rem;
+    padding: .6rem .7rem; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-2); color: var(--text); margin-bottom: .7rem;
+  }
+  .panel-progress {
+    border: 1px solid var(--border); border-radius: 10px; padding: .8rem .9rem;
+    background: var(--surface-2); margin-top: .9rem; font-size: .85rem;
+  }
+  .panel-round { font-weight: 650; margin-bottom: .5rem; }
+  .panel-speakers { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .panel-chip {
+    font-size: .74rem; padding: .18rem .5rem; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+  }
+  .panel-chip.speaking { border-color: var(--accent); color: var(--accent); }
+  .panel-chip.done { border-color: var(--good); color: var(--good); }
+
+  .panel-headline { font-size: 1.05rem; font-weight: 650; margin: 1rem 0 .4rem; }
+  .panel-summary { font-size: .9rem; white-space: pre-wrap; margin-bottom: 1rem; }
+  .panel-h3 {
+    font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--text-dim); margin: 1.3rem 0 .5rem;
+    padding-top: .8rem; border-top: 1px solid var(--border);
+  }
+  .panel-item {
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: .7rem .8rem; margin-bottom: .6rem; font-size: .87rem;
+  }
+  .panel-item-title { font-weight: 650; margin-bottom: .25rem; }
+  .panel-meta { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .45rem; }
+  .panel-tag {
+    font-size: .7rem; padding: .14rem .45rem; border-radius: 4px;
+    background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
+  }
+  .panel-tag.grade-outcome { background: var(--good-soft); color: var(--good); border-color: transparent; }
+  .panel-tag.grade-mechanism, .panel-tag.grade-case_report {
+    background: var(--warn-soft); color: var(--warn); border-color: transparent;
+  }
+  .panel-caveat { color: var(--warn); font-size: .8rem; margin-top: .35rem; }
+
+  /* Dissent is the point of a debate, so it is styled to be read, not skipped. */
+  .panel-dissent {
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: .6rem;
+  }
+  .panel-dissent-topic {
+    background: var(--surface-2); padding: .5rem .8rem; font-weight: 650; font-size: .87rem;
+  }
+  .panel-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+  @media (max-width: 640px) { .panel-sides { grid-template-columns: 1fr; } }
+  .panel-side { background: var(--surface); padding: .6rem .8rem; font-size: .84rem; }
+  .panel-side-who { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; }
+  .panel-settle {
+    padding: .5rem .8rem; font-size: .82rem; background: var(--accent-soft); color: var(--accent);
+  }
+  .panel-q { margin-bottom: .55rem; font-size: .87rem; }
+  .panel-q-text { font-weight: 600; }
+  .panel-q-why { color: var(--text-dim); font-size: .82rem; }
+  .panel-note {
+    background: var(--surface-2); border-radius: 8px; padding: .7rem .8rem;
+    font-size: .82rem; color: var(--text-dim); margin-top: 1rem;
+  }
+  .panel-urgent {
+    border-radius: 8px; padding: .75rem .9rem; font-size: .87rem; margin-bottom: 1rem;
+    background: var(--bad-soft); color: var(--bad); font-weight: 600;
+  }
+  .panel-urgent.lvl-sensitive, .panel-urgent.lvl-concern {
+    background: var(--warn-soft); color: var(--warn);
+  }
+  details.panel-more { margin-top: .6rem; }
+  details.panel-more > summary {
+    cursor: pointer; font-size: .8rem; color: var(--accent); padding: .3rem 0;
+  }
+  .panel-take { border-left: 2px solid var(--border); padding: .1rem 0 .1rem .7rem; margin: .6rem 0; }
+  .panel-take-who { font-size: .78rem; font-weight: 650; margin-bottom: .15rem; }
+  .panel-take-body { font-size: .84rem; white-space: pre-wrap; color: var(--text-dim); }
+
   /* --- welcome / splash --- */
   .splash-overlay {
     position: fixed; inset: 0; z-index: 100;
@@ -514,6 +593,31 @@
       full one. Never stop a medicine without talking to your doctor.</div>
   </section>
 
+  <section class="card" id="panelCard">
+    <h2>Expert panel review <span class="badge b-kind" id="panelBadge" hidden></span></h2>
+    <p class="panel-intro">
+      A panel of subject-matter experts &mdash; pharmacists, organ-system specialists, a
+      deprescribing voice, a skeptic who argues most warnings are noise, and someone speaking
+      from lived experience &mdash; reviews your list independently, argues with each other,
+      and reports what they <em>couldn't</em> agree on. This is separate from the warnings
+      above, which come from a fixed reference table rather than from reasoning.
+    </p>
+    <textarea id="panelNote" maxlength="4000"
+      placeholder="Optional &mdash; anything you've noticed? e.g. &quot;exhausted since the new prescription in March&quot; or &quot;bruising more easily lately&quot;. The panel reads this."></textarea>
+    <button class="btn" id="panelBtn">Convene the panel</button>
+    <button class="btn tiny" id="panelPdfBtn" hidden style="margin-top:.5rem">&#128462; PDF of these questions</button>
+    <div class="panel-progress" id="panelProgress" hidden>
+      <div class="panel-round" id="panelRound">Starting&hellip;</div>
+      <div class="panel-speakers" id="panelSpeakers"></div>
+    </div>
+    <div id="panelResult" hidden></div>
+    <div class="warn-note" id="panelFoot" hidden>
+      Every expert here is generated by the same underlying model, so several of them agreeing
+      is much weaker evidence than several independent clinicians agreeing. Nothing here is an
+      instruction to change what you take.
+    </div>
+  </section>
+
   <section class="card">
     <h2>Your records</h2>
 
@@ -548,6 +652,209 @@ let records = [];
 let filter = 'all';
 
 const $ = (id) => document.getElementById(id);
+
+// --- expert panel ---
+const GRADE_LABEL = {
+  outcome: 'Outcome data', surrogate: 'Lab endpoint', pharmacokinetic: 'Exposure study',
+  case_report: 'Case reports only', mechanism: 'Mechanism only'
+};
+const TIER_LABEL = {
+  free_now: 'Free, today', pharmacist: 'Ask a pharmacist (free)',
+  appointment: 'At your next appointment', specialist: 'Needs a referral'
+};
+
+function panelChip(id, name, state) {
+  return '<span class="panel-chip ' + state + '" data-agent="' + esc(id) + '">' + esc(name) + '</span>';
+}
+
+$('panelBtn').addEventListener('click', async () => {
+  const btn = $('panelBtn');
+  btn.disabled = true;
+  btn.textContent = 'The panel is meeting…';
+  $('panelResult').hidden = true;
+  $('panelResult').innerHTML = '';
+  $('panelFoot').hidden = true;
+  $('panelBadge').hidden = true;
+  $('panelProgress').hidden = false;
+  $('panelRound').textContent = 'Convening…';
+  $('panelSpeakers').innerHTML = '';
+
+  const speakers = new Map();
+  try {
+    const res = await fetch('/api/panel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: $('panelNote').value })
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).detail || msg; } catch {}
+      throw new Error(msg);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+
+        if (ev.type === 'round') {
+          $('panelRound').textContent = 'Round ' + ev.n + ' of 8 — ' + ev.name;
+        } else if (ev.type === 'panel') {
+          for (const s of ev.seated) speakers.set(s.agent_id, { name: s.name, state: '' });
+          $('panelSpeakers').innerHTML = [...speakers].map(([id, s]) => panelChip(id, s.name, s.state)).join('');
+        } else if (ev.type === 'take-start' || ev.type === 'challenge-start') {
+          const s = speakers.get(ev.agent_id);
+          if (s) { s.state = 'speaking'; $('panelSpeakers').innerHTML = [...speakers].map(([id, v]) => panelChip(id, v.name, v.state)).join(''); }
+        } else if (ev.type === 'take-end' || ev.type === 'challenge-end') {
+          const s = speakers.get(ev.agent_id);
+          if (s) { s.state = 'done'; $('panelSpeakers').innerHTML = [...speakers].map(([id, v]) => panelChip(id, v.name, v.state)).join(''); }
+        } else if (ev.type === 'error') {
+          throw new Error(ev.message);
+        } else if (ev.type === 'review') {
+          renderPanel(ev.review);
+        }
+      }
+    }
+  } catch (e) {
+    $('panelResult').hidden = false;
+    $('panelResult').innerHTML = '<div class="panel-urgent lvl-concern">The panel could not finish: '
+      + esc(e.message) + '</div>';
+  } finally {
+    $('panelProgress').hidden = true;
+    btn.disabled = false;
+    btn.textContent = 'Convene the panel';
+  }
+});
+
+function renderPanel(r) {
+  const out = [];
+
+  if (r.urgency_message) {
+    out.push('<div class="panel-urgent lvl-' + esc(r.urgency) + '">' + esc(r.urgency_message) + '</div>');
+  }
+  if (r.halted) {
+    $('panelResult').innerHTML = out.join('') || '<div class="panel-note">The panel did not run.</div>';
+    $('panelResult').hidden = false;
+    return;
+  }
+
+  out.push('<div class="panel-headline">' + esc(r.headline) + '</div>');
+  out.push('<div class="panel-summary">' + esc(r.summary) + '</div>');
+
+  // Who was in the room, including who was deliberately left out.
+  if (r.seated.length) {
+    out.push('<details class="panel-more"><summary>Who was in the room ('
+      + r.seated.length + ' experts)</summary>');
+    out.push(r.seated.map(s => '<div class="panel-q"><span class="panel-q-text">' + esc(s.name)
+      + '</span><div class="panel-q-why">' + esc(s.reason) + '</div></div>').join(''));
+    if (r.not_seated.length) {
+      out.push('<div class="panel-q-why" style="margin-top:.6rem"><strong>Deliberately not seated:</strong> '
+        + r.not_seated.map(s => esc(s.name) + ' — ' + esc(s.reason)).join('; ') + '</div>');
+    }
+    if (r.framing) out.push('<div class="panel-note">How the panel framed it: ' + esc(r.framing) + '</div>');
+    if (r.unknowns.length) {
+      out.push('<div class="panel-note"><strong>What nobody here could see:</strong><ul>'
+        + r.unknowns.map(u => '<li>' + esc(u) + '</li>').join('') + '</ul></div>');
+    }
+    out.push('</details>');
+  }
+
+  if (r.concerns.length) {
+    out.push('<div class="panel-h3">What the panel agreed is worth raising</div>');
+    out.push(r.concerns.map(c => {
+      let html = '<div class="panel-item"><div class="panel-item-title">' + esc(c.title) + '</div>'
+        + '<div>' + esc(c.detail) + '</div>';
+      if (c.data_caveat) html += '<div class="panel-caveat">&#9888;&#65039; ' + esc(c.data_caveat) + '</div>';
+      html += '<div class="panel-meta">';
+      if (c.involved.length) html += '<span class="panel-tag">' + c.involved.map(esc).join(' + ') + '</span>';
+      html += '<span class="panel-tag grade-' + esc(c.evidence_grade) + '">'
+        + esc(GRADE_LABEL[c.evidence_grade] || c.evidence_grade) + '</span>'
+        + '<span class="panel-tag">' + Math.round(c.confidence * 100) + '% confidence</span>'
+        + '<span class="panel-tag">raised by ' + c.raised_by.length + '</span></div></div>';
+      return html;
+    }).join(''));
+  }
+
+  if (r.dissent.length) {
+    out.push('<div class="panel-h3">Where they did not agree</div>');
+    out.push(r.dissent.map(d =>
+      '<div class="panel-dissent"><div class="panel-dissent-topic">' + esc(d.topic) + '</div>'
+      + '<div class="panel-sides">'
+      + '<div class="panel-side"><div class="panel-side-who">' + d.side_a_agents.length + ' expert(s) said</div>' + esc(d.side_a) + '</div>'
+      + '<div class="panel-side"><div class="panel-side-who">' + d.side_b_agents.length + ' expert(s) said</div>' + esc(d.side_b) + '</div>'
+      + '</div><div class="panel-settle">What would settle it: ' + esc(d.what_would_settle_it) + '</div></div>'
+    ).join(''));
+  }
+
+  if (r.questions.length) {
+    out.push('<div class="panel-h3">What to ask, and who to ask</div>');
+    out.push(r.questions.map(q =>
+      '<div class="panel-q"><div class="panel-q-text">&ldquo;' + esc(q.question) + '&rdquo;</div>'
+      + '<div class="panel-q-why">' + esc(q.why) + '</div>'
+      + '<div class="panel-meta"><span class="panel-tag">' + esc(TIER_LABEL[q.tier] || q.tier) + '</span>'
+      + (q.about.length ? '<span class="panel-tag">' + q.about.map(esc).join(', ') + '</span>' : '')
+      + '</div></div>'
+    ).join(''));
+  }
+
+  if (r.discriminating_observations.length) {
+    out.push('<div class="panel-h3">What would settle the open questions</div><ul>');
+    out.push(r.discriminating_observations.map(o => '<li>' + esc(o) + '</li>').join('') + '</ul>');
+  }
+
+  if (r.dropped.length) {
+    out.push('<details class="panel-more"><summary>What the panel considered and ruled out ('
+      + r.dropped.length + ')</summary>'
+      + r.dropped.map(d => '<div class="panel-q"><span class="panel-q-text">' + esc(d.title)
+        + '</span><div class="panel-q-why">' + esc(d.reason) + '</div></div>').join('')
+      + '</details>');
+  }
+
+  // The transcript, so a conclusion can be traced back to who actually said it.
+  if (r.takes.length) {
+    const who = {};
+    r.seated.forEach(s => { who[s.agent_id] = s.name; });
+    out.push('<details class="panel-more"><summary>Read the full discussion ('
+      + r.takes.length + ' opening statements, ' + r.challenges.length + ' challenges)</summary>');
+    out.push(r.takes.map(t => '<div class="panel-take"><div class="panel-take-who">'
+      + esc(who[t.agent_id] || t.agent_id) + '</div><div class="panel-take-body">'
+      + esc(t.text) + '</div></div>').join(''));
+    out.push(r.challenges.map(c => '<div class="panel-take"><div class="panel-take-who">'
+      + esc(who[c.agent_id] || c.agent_id) + ' → ' + esc(who[c.target_id] || c.target_id)
+      + '</div><div class="panel-take-body">' + esc(c.text) + '</div></div>').join(''));
+    out.push('</details>');
+  }
+
+  if (r.what_this_cannot_tell.length) {
+    out.push('<div class="panel-note"><strong>What this cannot tell you:</strong><ul>'
+      + r.what_this_cannot_tell.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>');
+  }
+  if (r.correlated_model_note) {
+    out.push('<div class="panel-note">' + esc(r.correlated_model_note) + '</div>');
+  }
+
+  $('panelResult').innerHTML = out.join('');
+  $('panelResult').hidden = false;
+  $('panelFoot').hidden = false;
+  $('panelPdfBtn').hidden = false;
+  $('panelBadge').hidden = false;
+  $('panelBadge').textContent = r.concerns.length + ' agreed · ' + r.dissent.length + ' unresolved';
+}
+
+$('panelPdfBtn').addEventListener('click', () => { window.location = '/api/panel/pdf'; });
+
+// A completed review outlives a page reload - re-running it costs real money.
+fetch('/api/panel/latest').then(r => r.json()).then(d => {
+  if (d.review) renderPanel(d.review);
+}).catch(() => {});
 
 // --- welcome / splash ---
 const SPLASH_KEY = 'mc_splash_seen';

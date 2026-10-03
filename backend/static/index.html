@@ -347,6 +347,58 @@
   .panel-take-who { font-size: .78rem; font-weight: 650; margin-bottom: .15rem; }
   .panel-take-body { font-size: .84rem; white-space: pre-wrap; color: var(--text-dim); }
 
+  /* --- assistant chat --- */
+  /* The conversation is the primary surface, so it spans both columns
+     rather than being squeezed into the narrow one. */
+  #chatCard { grid-column: 1 / -1; display: flex; flex-direction: column; }
+  .chat-log {
+    max-height: 420px; overflow-y: auto; margin-bottom: .8rem;
+    display: flex; flex-direction: column; gap: .7rem;
+  }
+  .chat-empty { color: var(--text-dim); font-size: .86rem; padding: .4rem 0 .8rem; }
+  .chat-empty ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .chat-empty li { margin-bottom: .25rem; }
+  .chat-turn { display: flex; }
+  .chat-turn.user { justify-content: flex-end; }
+  .chat-bubble {
+    max-width: 85%; padding: .6rem .8rem; border-radius: 12px;
+    font-size: .88rem; white-space: pre-wrap; line-height: 1.45;
+  }
+  .chat-turn.user .chat-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .chat-turn.assistant .chat-bubble {
+    background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 4px;
+  }
+  .chat-cites { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+  .chat-cite {
+    font-size: .7rem; padding: .14rem .45rem; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+  }
+  .chat-ask {
+    margin-top: .55rem; padding: .5rem .65rem; border-radius: 8px;
+    background: var(--accent-soft); color: var(--accent); font-size: .82rem;
+  }
+  .chat-ask-title { font-weight: 650; margin-bottom: .2rem; }
+  .chat-guard, .chat-urgent {
+    margin-top: .5rem; padding: .5rem .65rem; border-radius: 8px; font-size: .82rem;
+    background: var(--warn-soft); color: var(--warn);
+  }
+  .chat-urgent { background: var(--bad-soft); color: var(--bad); font-weight: 600; }
+  .chat-action {
+    margin-top: .5rem; padding: .55rem .7rem; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-size: .84rem;
+  }
+  .chat-action.done { background: var(--good-soft); color: var(--good); border-color: transparent; }
+  .chat-action-text { flex: 1 1 200px; }
+  .chat-form { display: flex; gap: .5rem; }
+  .chat-form input {
+    flex: 1; font: inherit; font-size: .9rem; padding: .6rem .75rem;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-2); color: var(--text);
+  }
+  .chat-form .btn { width: auto; padding: .6rem 1.1rem; }
+  .chat-thinking { color: var(--text-dim); font-size: .84rem; font-style: italic; }
+
   /* --- labs --- */
   .lab-row {
     display: flex; align-items: baseline; gap: .6rem; padding: .4rem 0;
@@ -563,6 +615,21 @@
 </div>
 
 <main>
+  <section class="card" id="chatCard">
+    <h2>Ask about your record</h2>
+    <div class="chat-log" id="chatLog"></div>
+    <form class="chat-form" id="chatForm">
+      <input type="text" id="chatInput" autocomplete="off" maxlength="4000"
+        placeholder="Ask anything, or tell me what happened at an appointment&hellip;" />
+      <button class="btn" type="submit" id="chatSend">Ask</button>
+    </form>
+    <div class="warn-note">
+      Answers come from your own records, with the sources shown. It can't tell you to start,
+      stop or change anything &mdash; questions like that get turned into something to ask your
+      pharmacist or prescriber. <a href="#" id="chatClear">Clear this conversation</a>
+    </div>
+  </section>
+
   <section class="card">
     <h2>Add a document</h2>
     <p style="font-size:.8rem; color:var(--text-dim); margin:0 0 .8rem;">
@@ -707,6 +774,127 @@ let records = [];
 let filter = 'all';
 
 const $ = (id) => document.getElementById(id);
+
+// --- assistant chat ---
+let chatTurns = [];
+let chatBusy = false;
+
+const CHAT_SUGGESTIONS = [
+  'Why am I on each of these?',
+  'What changed since my last appointment?',
+  'I just got back from the doctor&nbsp;&mdash; here\'s what they said&hellip;'
+];
+
+function renderChat() {
+  const log = $('chatLog');
+  if (chatTurns.length === 0) {
+    log.innerHTML = '<div class="chat-empty">Ask me about anything in your record &mdash; what you take, '
+      + 'what changed, what a result was. I answer from your own documents and show you where each '
+      + 'answer came from.<ul>'
+      + CHAT_SUGGESTIONS.map(x => '<li>' + x + '</li>').join('') + '</ul></div>';
+    return;
+  }
+
+  log.innerHTML = chatTurns.map(t => {
+    if (t.role === 'user') {
+      return '<div class="chat-turn user"><div class="chat-bubble">' + esc(t.text) + '</div></div>';
+    }
+    let html = '<div class="chat-turn assistant"><div class="chat-bubble">' + esc(t.text);
+    if (t.urgency_message && t.urgency !== 'clear') {
+      html += '<div class="chat-' + (t.urgency === 'urgent' ? 'urgent' : 'guard') + '">'
+        + esc(t.urgency_message) + '</div>';
+    }
+    if (t.guard_notice) html += '<div class="chat-guard">' + esc(t.guard_notice) + '</div>';
+    if (t.citations && t.citations.length) {
+      html += '<div class="chat-cites">'
+        + t.citations.map(c => '<span class="chat-cite">' + esc(c.label) + '</span>').join('')
+        + '</div>';
+    }
+    if (t.questions_for_clinician && t.questions_for_clinician.length) {
+      html += '<div class="chat-ask"><div class="chat-ask-title">Worth asking your pharmacist or prescriber</div>'
+        + t.questions_for_clinician.map(q => '&ldquo;' + esc(q) + '&rdquo;').join('<br />') + '</div>';
+    }
+    (t.actions || []).forEach(a => {
+      html += a.applied
+        ? '<div class="chat-action done"><span class="chat-action-text">&#10003; ' + esc(a.description) + '</span></div>'
+        : '<div class="chat-action"><span class="chat-action-text">' + esc(a.description) + '</span>'
+          + '<button class="btn tiny" data-apply="' + esc(a.id) + '">Apply this</button></div>';
+    });
+    return html + '</div></div>';
+  }).join('');
+  log.scrollTop = log.scrollHeight;
+}
+
+$('chatForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('chatInput');
+  const message = input.value.trim();
+  if (!message || chatBusy) return;
+
+  chatBusy = true;
+  input.value = '';
+  $('chatSend').disabled = true;
+  chatTurns.push({ role: 'user', text: message });
+  renderChat();
+  $('chatLog').insertAdjacentHTML('beforeend',
+    '<div class="chat-turn assistant" id="chatPending"><div class="chat-bubble chat-thinking">Reading your record&hellip;</div></div>');
+  $('chatLog').scrollTop = $('chatLog').scrollHeight;
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    chatTurns.push((await res.json()).turn);
+  } catch (err) {
+    chatTurns.push({ role: 'assistant', text: 'I could not answer that: ' + err.message });
+  } finally {
+    chatBusy = false;
+    $('chatSend').disabled = false;
+    renderChat();
+    input.focus();
+  }
+});
+
+// Applying a proposed change is always an explicit click, never automatic.
+$('chatLog').addEventListener('click', async (e) => {
+  const actionId = e.target.dataset.apply;
+  if (!actionId) return;
+  e.target.disabled = true;
+  try {
+    const res = await fetch('/api/chat/actions/' + actionId + '/apply', { method: 'POST' });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    await loadChat();
+    loadMedList(); loadFindings(); loadObservations();
+  } catch (err) {
+    e.target.disabled = false;
+    alert('Could not apply that change: ' + err.message);
+  }
+});
+
+$('chatClear').addEventListener('click', async (e) => {
+  e.preventDefault();
+  if (!confirm('Clear this conversation? Your records are not affected.')) return;
+  await fetch('/api/chat', { method: 'DELETE' });
+  chatTurns = [];
+  renderChat();
+});
+
+function loadChat() {
+  return fetch('/api/chat').then(r => r.json()).then(d => {
+    chatTurns = d.turns;
+    renderChat();
+  }).catch(() => {});
+}
 
 // --- lab results ---
 function renderLabs(labs) {
@@ -993,6 +1181,7 @@ fetch('/api/panel/latest').then(r => r.json()).then(d => {
 }).catch(() => {});
 loadObservations();
 loadLabs();
+loadChat();
 
 // --- welcome / splash ---
 const SPLASH_KEY = 'mc_splash_seen';
@@ -1381,11 +1570,11 @@ $('resetBtn').addEventListener('click', async () => {
 
     // reset local state to the fresh-start view
     records = []; mlItems = []; mlBaselines = []; editingId = null; historyOpenId = null;
-    observations = [];
+    observations = []; chatTurns = [];
     $('diffPanel').hidden = true;
     $('panelResult').hidden = true; $('panelFoot').hidden = true;
     $('panelPdfBtn').hidden = true; $('panelBadge').hidden = true;
-    render(); renderMedList(); renderFindings([]); renderLabs([]); renderObservations();
+    render(); renderMedList(); renderFindings([]); renderLabs([]); renderObservations(); renderChat();
     $('mlStatus').textContent = 'Everything was archived to the downloaded PDF and erased. Fresh start!';
   } catch (e) {
     alert('Nothing was deleted - the archive could not be created: ' + e.message);

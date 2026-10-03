@@ -73,6 +73,26 @@ shortcut)**. Now it launches from your desktop like any other program.
 
 ## Using the app
 
+### Asking it things
+
+At the top of the page is **Ask about your record**. This is the quickest way
+to use the app day to day:
+
+- *"Why am I on lisinopril?"* — it answers from your documents, and shows you
+  which ones. If nothing says why, it tells you that plainly, which is itself
+  worth raising with whoever prescribed it.
+- *"What changed since my last appointment?"* — answered exactly, because the
+  app keeps a complete record of every change ever made to your list.
+- *"Should I stop the fish oil?"* — it won't answer that, and it shouldn't.
+  It will tell you what your own record says that bears on it, and hand you
+  the question phrased so you can say it out loud to your pharmacist.
+
+**After an appointment, just tell it what happened.** Type something like
+*"just got back from cardiology, they upped the warfarin to 7.5 and said stop
+the fish oil"* and it will offer the matching changes as buttons. Nothing on
+your list moves until you press one. That is the fastest way to keep your
+record true, and everything else in the app gets better when it is.
+
 ### Lab results
 
 If you upload a lab report, the app reads the values off it the same way it

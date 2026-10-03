@@ -18,6 +18,8 @@ from app.interactions.engine import evaluate
 from app.ingestion.file_loader import UnsupportedFileType
 from app.ingestion.multimodal_extractor import ExtractionTruncated
 from app.normalization import supplement_terms
+from app.assistant import engine as assistant_engine
+from app.assistant.schemas import AssistantTurn, Role
 from app.panel import engine as panel_engine
 from app.panel import observations as panel_observations
 from app.panel.llm import PanelUnavailable
@@ -186,6 +188,138 @@ def panel_pdf():
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# --- conversational assistant ------------------------------------------------
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+def _record_for_assistant():
+    store, list_store = get_store(), get_list_store()
+    return {
+        "items": list_store.list_items(),
+        "labs": store.list_labs(),
+        "history": list_store.history(),
+        "observations": list_store.list_observations(),
+        "findings": evaluate(_screening_records()),
+        "review": list_store.latest_panel_review(),
+    }
+
+
+@router.get("/chat")
+def chat_history():
+    return {"turns": [t.model_dump(mode="json") for t in get_list_store().chat_history()]}
+
+
+@router.delete("/chat")
+def clear_chat():
+    get_list_store().clear_chat()
+    return {"ok": True}
+
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    """One conversational turn, grounded in the person's own record.
+
+    Returns structured content - answer, citations, proposed actions - rather
+    than rendered markup, so a native client can present each part natively.
+    See docs/APP_ROADMAP.md."""
+
+    settings = get_settings()
+    if not settings.anthropic_api_key.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="The assistant needs an Anthropic API key. Add one to backend/.env.",
+        )
+
+    store = get_list_store()
+    user_turn = AssistantTurn(role=Role.user, text=request.message.strip())
+    store.save_chat_turn(user_turn)
+
+    try:
+        reply = await assistant_engine.answer(
+            request.message, prior=store.chat_history()[:-1], **_record_for_assistant()
+        )
+    except anthropic.APIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"The assistant could not reach the model: "
+            f"{getattr(exc, 'message', str(exc))[:200]}",
+        ) from exc
+
+    store.save_chat_turn(reply)
+    return {"turn": reply.model_dump(mode="json")}
+
+
+@router.post("/chat/actions/{action_id}/apply")
+def apply_chat_action(action_id: str):
+    """Apply one proposed record change, after the person confirmed it.
+
+    Nothing the assistant proposes takes effect without this call: a misheard
+    sentence silently editing a medication list is precisely the failure this
+    app exists to prevent."""
+
+    store = get_list_store()
+    for turn in reversed(store.chat_history()):
+        for action in turn.actions:
+            if action.id != action_id:
+                continue
+            if action.applied:
+                raise HTTPException(status_code=409, detail="That change was already applied.")
+
+            detail = _apply_action(store, action)
+            action.applied = True
+            store.save_chat_turn(turn)
+            return {"ok": True, "detail": detail,
+                    "action": action.model_dump(mode="json")}
+
+    raise HTTPException(status_code=404, detail="No such proposed change.")
+
+
+def _apply_action(store: MedListStore, action) -> str:
+    from app.assistant.schemas import ActionKind
+    from app.panel.schemas import ObservationStatus
+
+    if action.kind is ActionKind.add_item:
+        payload = action.payload
+        item = store.add_item(MedListItem(
+            kind=RecordKind(payload.get("kind", "medicine")),
+            name=payload["name"],
+            dosage=payload.get("dosage"),
+            frequency=payload.get("frequency"),
+            notes=payload.get("notes"),
+        ))
+        return f"Added {item.name} to your list."
+
+    if action.kind is ActionKind.update_item:
+        fields = {k: v for k, v in action.payload.items() if k in EDITABLE_FIELDS}
+        if not fields:
+            raise HTTPException(status_code=400, detail="Nothing to change in that update.")
+        item = store.update_item(action.target_id, fields)
+        if item is None:
+            raise HTTPException(status_code=404, detail="That item is no longer on your list.")
+        return f"Updated {item.canonical_name or item.name}."
+
+    if action.kind is ActionKind.stop_item:
+        item = store.update_item(action.target_id, {"status": "stopped"})
+        if item is None:
+            raise HTTPException(status_code=404, detail="That item is no longer on your list.")
+        return f"Marked {item.canonical_name or item.name} as stopped."
+
+    if action.kind is ActionKind.answer_observation:
+        observation = store.get_observation(action.target_id)
+        if observation is None:
+            raise HTTPException(status_code=404, detail="That question is no longer open.")
+        observation.answer = action.payload.get("answer", "").strip()
+        observation.status = ObservationStatus.answered
+        observation.answered_at = datetime.utcnow()
+        store.update_observation(observation)
+        return "Recorded your answer to the panel's open question."
+
+    raise HTTPException(status_code=400, detail="Unsupported change.")
 
 
 @router.get("/observations")

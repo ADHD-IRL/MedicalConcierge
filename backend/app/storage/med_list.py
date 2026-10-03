@@ -46,6 +46,15 @@ CREATE TABLE IF NOT EXISTS baselines (
     created_at TEXT NOT NULL,
     payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL DEFAULT 'local',
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_owner_created
+    ON chat_messages (owner_id, created_at);
 CREATE TABLE IF NOT EXISTS observations (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -248,6 +257,7 @@ class MedListStore:
             conn.execute("DELETE FROM baselines")
             conn.execute("DELETE FROM panel_reviews")
             conn.execute("DELETE FROM observations")
+            conn.execute("DELETE FROM chat_messages")
 
     # --- panel reviews -------------------------------------------------------
 
@@ -264,6 +274,47 @@ class MedListStore:
                 "INSERT INTO panel_reviews (id, created_at, payload) VALUES (?, ?, ?)",
                 (review.id, review.created_at.isoformat(), review.model_dump_json()),
             )
+
+    # --- conversation ---------------------------------------------------------
+    #
+    # owner_id is carried from the first version of this table rather than
+    # added later: it is the one column that is painful to retrofit, and it
+    # costs nothing while there is exactly one owner. See docs/APP_ROADMAP.md.
+
+    def save_chat_turn(self, turn, owner_id: str = "local") -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO chat_messages (id, owner_id, role, created_at, payload) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (turn.id, owner_id, turn.role.value, turn.created_at.isoformat(),
+                 turn.model_dump_json()),
+            )
+
+    def chat_history(self, owner_id: str = "local", limit: int = 100):
+        from app.assistant.schemas import AssistantTurn
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM chat_messages WHERE owner_id = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (owner_id, limit),
+            ).fetchall()
+        turns = [AssistantTurn.model_validate(json.loads(r[0])) for r in rows]
+        turns.reverse()  # oldest first, the order a conversation reads in
+        return turns
+
+    def get_chat_turn(self, turn_id: str):
+        from app.assistant.schemas import AssistantTurn
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload FROM chat_messages WHERE id = ?", (turn_id,)
+            ).fetchone()
+        return AssistantTurn.model_validate(json.loads(row[0])) if row else None
+
+    def clear_chat(self, owner_id: str = "local") -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM chat_messages WHERE owner_id = ?", (owner_id,))
 
     # --- tracked observations ------------------------------------------------
 

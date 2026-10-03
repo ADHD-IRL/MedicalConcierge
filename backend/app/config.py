@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     enable_panel: bool = True
     panel_model: str = "claude-sonnet-5"
     panel_synthesis_model: str = "claude-opus-5"
+    # The conversational assistant: short turns, answered many times a day,
+    # so it runs on the fast tier rather than the panel's deliberation tier.
+    assistant_model: str = "claude-sonnet-5"
     panel_max_seated: int = 8
     panel_concurrency: int = 6
 

@@ -517,7 +517,60 @@ One ordering constraint worth knowing: `save_panel_review` deliberately does
 the input that makes the next run converge, so wiping them on each run would
 silently break the loop while everything still appeared to work.
 
+## 5.11 The assistant (`app/assistant/`)
+
+The conversational layer, and the thing that turns a tool you operate into
+something you talk to. Two properties separate it from a general medical
+chatbot, and both are structural rather than stylistic.
+
+**It answers from the record.** `retrieval.build_digest()` assembles the med
+list, labs, change history, open observations, rule findings and the latest
+panel review into one block, every row prefixed with its id. Answers cite
+those ids, and `engine._parse()` discards any citation or action whose id is
+not actually in the digest — so the UI can never show a reference to something
+invented. "Your documents don't say" is a first-class answer, and usually a
+useful one: a blank where an indication should be is itself worth taking to a
+prescriber.
+
+No vector store, deliberately. One person's record is small enough to read
+whole, which removes an entire category of infrastructure and its
+retrieval-miss failure mode. History is the only unbounded table and is
+bounded at 60 recent events, with the total reported so the assistant knows
+what it is not seeing.
+
+**It never decides anything.** Three layers, in order of reliability:
+
+1. The deterministic urgency screen (`app/panel/safety.py`) runs on *every*
+   turn before any API call — the same gate the panel uses.
+2. The response schema gives clinical advice nowhere to live: anything the
+   assistant is not allowed to decide goes in `questions_for_clinician`,
+   phrased for the person to say out loud.
+3. `guard.py` is a backstop that flags directive language in the output. It is
+   deliberately narrow — it matches only the *assistant itself* recommending
+   ("I'd suggest reducing...", "you should stop..."), not reporting ("your
+   cardiologist told you to stop...") or recording ("you stopped it in
+   March"). A naive scan for "stop taking" fires on both of those, which are
+   core to what this assistant does, and a guard that cries wolf gets switched
+   off. When it fires the answer is shown with a visible notice rather than
+   silently rewritten, because quietly editing a medical answer is its own
+   failure mode.
+
+### Proposed actions
+
+"Just got back from cardiology, they upped the warfarin to 7.5 and said stop
+the fish oil" produces two `ProposedAction`s — and changes nothing. Each is a
+confirm button; `POST /api/chat/actions/{id}/apply` is the only thing that
+writes. A misheard sentence silently editing a medication list is precisely
+the failure this app exists to prevent, so the human stays in the loop by
+construction. Actions can also answer the panel's open observations, which
+closes the loop from §5.10 conversationally.
+
 ## 6. The API surface (`app/api/routes.py`)
+
+Every route below is served at **both** `/api/...` and `/api/v1/...`. The
+bundled web UI uses the unversioned path; a native client should pin to
+`/api/v1` so a future breaking change can ship as `/api/v2` without
+stranding installed apps. See [`APP_ROADMAP.md`](APP_ROADMAP.md).
 
 | Endpoint | What it does |
 |---|---|
@@ -533,6 +586,9 @@ silently break the loop while everything still appeared to work.
 | `POST /api/baselines` | snapshot the current list under a name |
 | `GET /api/list/compare/{baseline_id}` | added / stopped / changed since that baseline |
 | `GET /api/export?format=json\|csv\|pdf` | full export; JSON includes the list, baselines, and history; PDF is the clinician summary |
+| `POST /api/chat` | one grounded turn; returns answer, citations, proposed actions, clinician questions |
+| `GET /api/chat` / `DELETE /api/chat` | conversation history; clearing it leaves records untouched |
+| `POST /api/chat/actions/{id}/apply` | apply one confirmed record change |
 | `GET /api/labs` | lab values read off uploaded documents |
 | `GET /api/observations` | what the panel said would settle its open questions, and what has been answered |
 | `POST /api/observations/{id}/answer` | record what the person found out; the next run reads it as fact |
@@ -577,6 +633,7 @@ one `ANTHROPIC_API_KEY=...` line is enough; everything else has defaults):
 |---|---|---|
 | `ANTHROPIC_API_KEY` | *(empty)* | the one required secret; empty → UI shows setup banner |
 | `EXTRACTION_MODEL` | `claude-sonnet-5` | vision model for extraction |
+| `ASSISTANT_MODEL` | `claude-sonnet-5` | the conversational layer; short turns, many per day |
 | `ENABLE_PANEL` | `true` | turns the SME panel off entirely |
 | `PANEL_MODEL` | `claude-sonnet-5` | individual agent turns (short, many, parallel) |
 | `PANEL_SYNTHESIS_MODEL` | `claude-opus-5` | synthesis and safety veto, which reason over the whole transcript |

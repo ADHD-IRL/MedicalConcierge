@@ -72,7 +72,27 @@ if not exist "backend\.env" (
     echo.
 )
 
-rem --- 5. Start the app and open the browser ---
+rem --- 5. Check the setup before anything confusing can happen ---
+echo  Checking your setup...
+echo.
+cd backend
+"..\.venv\Scripts\python.exe" -m app.preflight
+set PREFLIGHT=%errorlevel%
+cd ..
+echo.
+if not "%PREFLIGHT%"=="0" (
+    echo  ------------------------------------------------------------
+    echo   Something above needs fixing. The app will still start, and
+    echo   you can keep using the parts that work, but read the lines
+    echo   marked FAIL first - each one says exactly what to change.
+    echo  ------------------------------------------------------------
+    echo.
+    echo  Press any key to start anyway...
+    pause >nul
+    echo.
+)
+
+rem --- 6. Start the app and open the browser ---
 echo  Starting Medical Concierge at http://localhost:8000
 echo.
 echo  Leave this window open while you use the app.

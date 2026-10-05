@@ -20,6 +20,7 @@ from app.ingestion.multimodal_extractor import ExtractionTruncated
 from app.normalization import supplement_terms
 from app.assistant import engine as assistant_engine
 from app.assistant.schemas import AssistantTurn, Role
+from app import preflight as preflight_checks
 from app.panel import engine as panel_engine
 from app.panel import observations as panel_observations
 from app.panel.llm import PanelUnavailable
@@ -89,6 +90,24 @@ async def _run_ingest(file: UploadFile):
     return IngestResponse(
         filename=file.filename, records=result.records, labs=result.labs
     )
+
+
+@router.get("/preflight")
+def preflight(check_network: bool = True):
+    """The same startup checks the launcher runs, over HTTP.
+
+    `check_network=false` skips the outbound calls, for when the caller only
+    wants to know whether a key is configured at all."""
+    report = preflight_checks.run(check_network=check_network)
+    return {
+        "ok": report.ok,
+        "degraded": report.degraded,
+        "available_models": report.available_models,
+        "checks": [
+            {"name": c.name, "ok": c.ok, "detail": c.detail, "fix": c.fix, "fatal": c.fatal}
+            for c in report.checks
+        ],
+    }
 
 
 @router.get("/health")

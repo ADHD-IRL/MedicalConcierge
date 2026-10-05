@@ -565,6 +565,58 @@ the failure this app exists to prevent, so the human stays in the loop by
 construction. Actions can also answer the panel's open observations, which
 closes the loop from §5.10 conversationally.
 
+## 5.12 Startup checks and the smoke test
+
+Two small tools that exist because everything else in this project is tested
+with the model calls stubbed. That proves the orchestration and proves nothing
+about the prompts or the model ids.
+
+### `app/preflight.py`
+
+The failure it exists to prevent: a stale or mistyped model id in `.env` looks
+completely fine until the first document upload, then surfaces as a 404 from
+an API the user has never heard of. One zero-token `models.list()` call turns
+that into a sentence naming the setting, the bad value, and what to put
+instead - the suggestion comes from `difflib` against the account's real model
+list, falling back to the newest id in the same family.
+
+It also checks the key itself and RxNorm reachability. Only things that would
+cause a *confusing* failure later are fatal: no key at all is `degraded` but
+not fatal, because manual entry, interaction warnings and the PDFs all work
+without one, and RxNorm being down degrades accuracy rather than stopping
+anything.
+
+Output is ASCII-only and uncoloured, because it renders inside the launcher's
+`cmd.exe` window where anything fancier arrives as mojibake. There is a test
+asserting that.
+
+Run it three ways: `python -m app.preflight` (exit 0 usable, 1 misconfigured),
+`GET /api/preflight`, or automatically from `Start-MedicalConcierge.bat`,
+which shows the report and pauses on a problem but never blocks startup -
+the user may legitimately want to run without a key.
+
+### `app/smoke.py`
+
+One real run against the real API, so output quality and cost stop being
+guesses. It builds a deliberately awkward sample regimen (a genuine
+interaction, a supplement people forget to mention, an unexplained drug, one
+out-of-range lab), asks the assistant two questions, and optionally runs the
+full eight-round panel, printing what actually came back alongside latency and
+token counts per stage.
+
+```
+python -m app.smoke             # assistant only - one call, seconds
+python -m app.smoke --panel     # adds the panel, which costs appreciably more
+```
+
+It writes to a throwaway database, so it can never touch real records.
+
+Token accounting comes from `llm.start_usage()`, a `ContextVar` tally rather
+than a module global - rounds run concurrently, and a shared global would have
+one task resetting another's count. It reports tokens rather than currency on
+purpose: prices change, and a hardcoded rate that silently goes stale is worse
+than no number at all.
+
 ## 6. The API surface (`app/api/routes.py`)
 
 Every route below is served at **both** `/api/...` and `/api/v1/...`. The
@@ -586,6 +638,7 @@ stranding installed apps. See [`APP_ROADMAP.md`](APP_ROADMAP.md).
 | `POST /api/baselines` | snapshot the current list under a name |
 | `GET /api/list/compare/{baseline_id}` | added / stopped / changed since that baseline |
 | `GET /api/export?format=json\|csv\|pdf` | full export; JSON includes the list, baselines, and history; PDF is the clinician summary |
+| `GET /api/preflight` | the startup checks over HTTP; `check_network=false` skips outbound calls |
 | `POST /api/chat` | one grounded turn; returns answer, citations, proposed actions, clinician questions |
 | `GET /api/chat` / `DELETE /api/chat` | conversation history; clearing it leaves records untouched |
 | `POST /api/chat/actions/{id}/apply` | apply one confirmed record change |

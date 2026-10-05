@@ -46,7 +46,11 @@ Python is the free software this app runs on.
 1. Open the extracted folder and **double-click `Start-MedicalConcierge.bat`**.
 2. The first run takes about a minute — it sets itself up, then asks you to
    paste your API key. Right-click to paste in that window, then press Enter.
-3. Your browser opens to the app automatically. A welcome screen explains
+3. It checks your setup and tells you if anything is wrong — a key that
+   was rejected, or a model name that needs updating — naming the exact
+   line to change in `backend\.env`. If everything is fine you will not notice
+   this step.
+4. Your browser opens to the app automatically. A welcome screen explains
    what the app does, where its information comes from, and how to get the
    best results — read it once, click **Get started**, and it won't show
    again. (You can reopen it any time with **How this works** at the top of
@@ -201,6 +205,7 @@ storage, nothing leaves your machine except:
 | Browser opens before the app is ready ("can't connect") | Wait a few seconds and refresh the page. |
 | "Something went wrong" when reading a document | Check the black window for the real error. Most common: an invalid API key, or no internet connection. |
 | "File too large" | Photos are shrunk automatically, so this should be rare. Single files over 30 MB are rejected — split a huge PDF, or re-save the file as JPG. PDFs are limited to 50 pages. |
+| Want to check your setup | Double-click the launcher: it checks the key and models every time it starts, and prints what to fix. |
 | Want to start completely fresh | Click **Start over…** (top-right). A PDF archive of everything is downloaded first, then all data is erased — the wipe only happens after the archive exists. |
 | Windows SmartScreen blocks the launcher | Click **More info → Run anyway** (see note in Step 4). |
 

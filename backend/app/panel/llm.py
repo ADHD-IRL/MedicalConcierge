@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
@@ -17,6 +19,47 @@ import anthropic
 from app.config import get_settings
 
 _TOOL_NAME = "record"
+
+
+@dataclass
+class Usage:
+    """What a run actually cost, in the only unit the API bills on.
+
+    Deliberately reports tokens rather than currency: prices change, and a
+    hardcoded rate that silently goes stale is worse than no number at all."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    by_model: dict = field(default_factory=dict)
+
+    def record(self, model: str, response) -> None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        self.calls += 1
+        self.input_tokens += usage.input_tokens
+        self.output_tokens += usage.output_tokens
+        entry = self.by_model.setdefault(model, {"calls": 0, "in": 0, "out": 0})
+        entry["calls"] += 1
+        entry["in"] += usage.input_tokens
+        entry["out"] += usage.output_tokens
+
+
+_usage: ContextVar[Usage | None] = ContextVar("llm_usage", default=None)
+
+
+def start_usage() -> Usage:
+    """Begin accounting for the current task. Returns the tally to read later."""
+    usage = Usage()
+    _usage.set(usage)
+    return usage
+
+
+def _record(model: str, response) -> None:
+    tally = _usage.get()
+    if tally is not None:
+        tally.record(model, response)
 
 
 class PanelUnavailable(RuntimeError):
@@ -48,13 +91,15 @@ async def prose(
     """Free-text turn - an agent's take or challenge."""
 
     settings = get_settings()
+    chosen = model or settings.panel_model
     async with gate:
         response = await _client().messages.create(
-            model=model or settings.panel_model,
+            model=chosen,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+    _record(chosen, response)
     return "".join(block.text for block in response.content if block.type == "text").strip()
 
 
@@ -72,9 +117,10 @@ async def structured(
     round that silently returns prose would break the round after it."""
 
     settings = get_settings()
+    chosen = model or settings.panel_model
     async with gate:
         response = await _client().messages.create(
-            model=model or settings.panel_model,
+            model=chosen,
             max_tokens=max_tokens,
             system=system,
             tools=[{
@@ -86,6 +132,7 @@ async def structured(
             messages=[{"role": "user", "content": user}],
         )
 
+    _record(chosen, response)
     for block in response.content:
         if block.type == "tool_use" and block.name == _TOOL_NAME:
             return dict(block.input)
